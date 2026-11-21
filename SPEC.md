@@ -63,15 +63,20 @@ Scaffold:
 - Tests: a known-bad controller fails the gate; banned code is rejected.
 
 ## PHASE 4 (13:15 to 14:05): managed agent backbone
-- Two saved agents: `gridsafe-engineer` (base `antigravity-preview-09-2026`, model `gemini-4-hydrogen`) and `gridsafe-hardener` (base `antigravity-preview-09-2026`, model `gemini-4-carbon`), both using a remote base environment with this GitHub repo mounted at `/workspace/repo` and `pytest` pre-installed once into the forked base environment.
-- Sandbox package constraint: everything the sandbox runs (`workload/`, `sim/`, `rules/`, `controllers/`, `evolve/`) is pure Python plus `numpy` only (no `scipy`). PyMuPDF stays backend-only.
-- .agents/AGENTS.md: plan checklist (read, verify, evolve, attack, certify); the checker is ground truth; refuse instead of guessing.
-- Skills in .agents/skills/: read-rulebook, evolve-controller, red-team, certify, each with exact sandbox commands.
-- Document/vision boundary: the agent never reads PDFs itself. Neon (Reader) and `gemini-decision-1` (Verifier) run on our backend and are exposed to the agent as custom functions `read_rulebook` and `verify_constraint` (alongside `report_progress` and `request_human_review`). Camera photos may also go to the agent as inline images.
-- Hooks are a second layer only (blocking controllers that fail the checker/tests inside the sandbox). The real gate: our backend re-runs the deterministic checker and tests on any controller the agent returns, and nothing is shown as compliant until that passes. Never trust the agent's own claim.
+- Two saved managed agents with distinct skills mounted at `.agents/skills/<name>/SKILL.md`:
+  - `gridsafe-engineer` (base `antigravity-preview-09-2026`, model `gemini-4-hydrogen`): skills `read-rulebook`, `evolve-controller`, `certify`.
+  - `gridsafe-hardener` (base `antigravity-preview-09-2026`, model `gemini-4-carbon`): skills `red-team`, `analyze-failure`.
+  - Both use a remote base environment with this GitHub repo mounted at `/workspace/repo` and `pytest` pre-installed once into the forked base environment.
+- Sandbox package & secret boundaries: everything the sandbox runs (`workload/`, `sim/`, `rules/`, `controllers/`, `evolve/`) is pure Python plus `numpy` only (no `scipy`; PyMuPDF stays backend-only). Never place `GEMINI_API_KEY` inside any sandbox.
+- .agents/AGENTS.md: plan checklist (read, verify, evolve, attack, certify); the deterministic checker is ground truth; refuse instead of guessing.
+- Document/vision boundary: agents never read PDFs themselves. Neon (Reader) and `gemini-decision-1` (Verifier) run on our backend and are exposed to `gridsafe-engineer` as custom functions `read_rulebook` and `verify_constraint` (alongside `report_progress`, `request_human_review`, and `message_agent`). Camera photos may also pass as inline images.
+- Multi-agent communication via Gemini Interactions API (`message_agent` bridge): official Managed Agents docs (`custom-agents.md`) explicitly state `"No subagent nesting: Subagent delegation is not yet supported."` Therefore, agents communicate through a custom function `message_agent`. When `gridsafe-engineer` calls `message_agent`, our backend creates/continues an interaction with `gridsafe-hardener` through the Gemini Interactions API (`client.interactions.create`), preserving each agent's stateful thread via `previous_interaction_id` and `environment`, and returns the hardener's reply as the `function_result`.
+- Adversarial review protocol: `gridsafe-engineer` submits a candidate controller plus the verified constraints to `gridsafe-hardener`. `gridsafe-hardener` attacks it inside its own isolated sandbox and replies with counterexample workloads as structured JSON, or `"no break within budget"`. `gridsafe-engineer` fixes the controller and resubmits. Stop after 2 clean rounds or when the token/time budget ends.
+- Auditability & UI: every message between agents is structured JSON, logged to `eval/agent_threads/`, shown in the UI as a visible agent-to-agent thread, and summarized on the certificate (rounds, attacks, fixes).
+- Ground-truth verification: hooks are a second layer only (blocking controllers that fail the checker/tests inside the sandbox). Our backend independently re-runs the deterministic checker and tests on every submitted controller AND every claimed counterexample workload before returning or displaying compliance. An agent's claim is never trusted without it.
 - Token budget per job. Jobs run in the background and stream steps.
-- Job run: one forked run per rulebook, output controller, certificate, checked-off plan.
-- Hardening run: start now and leave running until freeze on `gridsafe-hardener` (`gemini-4-carbon`). It attacks, logs breaks to eval/attacks/, fixes, reruns eval. Keep a timestamped tally.
+- Job run: one forked run per rulebook, outputting controller, certificate, checked-off plan, and logged agent thread.
+- Hardening run: start in Phase 4 and leave running until freeze on `gridsafe-hardener` (`gemini-4-carbon`). It attacks, logs verified breaks to `eval/attacks/`, coordinates fixes, and reruns eval with a timestamped tally.
 - Live path: time one job run. Under 2 minutes, the judge's input goes to the agent. Slower, the local loop answers in 75 seconds while the agent runs the same job in the background and the UI shows whether they agree.
 - Baseline B2: stock Antigravity agent, same document, no skills, hooks, functions, or checker.
 

@@ -161,10 +161,11 @@ agent = client.agents.create(
 - **No root mount**: `target` in `environment.sources` cannot be `/`; mount the repo at `/workspace/repo` and mount `.agents/AGENTS.md`, `.agents/skills/<name>/SKILL.md`, and `.agents/hooks.json` at `.agents/...` (auto-discovered by runtime).
 - **Pre-installed sandbox software**: Ubuntu, Python 3.12 (`numpy`, `pandas`, `requests`, `google-genai`, `beautifulsoup4`, `pyyaml`), Node 22, `git`, `ripgrep`, `jq`. Note that `scipy`, `pymupdf`, and `pytest` are **not** pre-installed; either fork a warm base environment with them installed or install via `pip` / keep checker pure-Python+numpy.
 
-### Custom Functions (Function Calling on Antigravity)
+### Custom Functions & Multi-Agent Bridge (Function Calling on Antigravity)
 - Pass `{"type": "function", "name": "...", "description": "...", "parameters": {...}}` in `tools`.
 - When `interaction.status == "requires_action"`, inspect `interaction.steps` for `step.type == "function_call"` without a matching `function_result` (`call_id`).
 - Return result in next turn with `previous_interaction_id=interaction.id`, `environment=interaction.environment_id`, and `input=[{"type": "function_result", "name": fc.name, "call_id": fc.id, "result": {...}}]`. Stateful mode only.
+- **No native subagent / agent-to-agent delegation**: Official `https://aistudio.google.com/docs/custom-agents.md` explicitly states under *Limitations*: `"No subagent nesting: Subagent delegation is not yet supported."` Therefore, multi-agent communication (`gridsafe-engineer` <-> `gridsafe-hardener`) is bridged via a custom function `message_agent`: our backend handles the `function_call`, invokes the target saved agent via `client.interactions.create` (maintaining each agent's stateful `previous_interaction_id` and `environment`), independently verifies controllers/counterexamples with the deterministic checker, logs structured JSON messages to `eval/agent_threads/`, and returns the reply as `function_result`. No API key is placed inside any sandbox.
 
 ### Hooks (`.agents/hooks.json`)
 - Auto-discovered at `.agents/hooks.json` or `/.agents/hooks.json`.

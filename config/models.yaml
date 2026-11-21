@@ -17,7 +17,7 @@ verifier:
 
 designer:
   model: gemini-4-hydrogen
-  thinking_level: medium
+  thinking_level: low
   job: "Fast parallel controller mutations in the evolve loop, and underlying model for managed agent gridsafe-engineer."
 
 hardener:

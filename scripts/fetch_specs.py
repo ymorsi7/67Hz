@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 
@@ -13,21 +13,33 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SPECS_DIR = REPO_ROOT / "specs"
 SOURCES_MD = SPECS_DIR / "SOURCES.md"
 
-URL_RE = re.compile(r"https?://[^\s)>]+")
+URL_RE = re.compile(r"https?://\S+")
+
+KNOWN_FILENAMES: dict[str, str] = {
+    "BB34AE143811453B8F5923C8E7C234BC.ashx": "PerformanceRequirementsLargeLoadsConnectedLIPASystem.pdf",
+}
 
 
 def parse_source_urls(sources_md: Path = SOURCES_MD) -> list[str]:
     text = sources_md.read_text(encoding="utf-8")
-    return URL_RE.findall(text)
+    urls: list[str] = []
+    for raw in URL_RE.findall(text):
+        url = raw.rstrip(".,;>")
+        while url.endswith(")") and url.count(")") > url.count("("):
+            url = url[:-1]
+        urls.append(url)
+    return urls
 
 
 def target_filename_for_url(url: str) -> str:
     parsed = urlparse(url)
-    name = Path(parsed.path).name
-    if not name.lower().endswith(".pdf"):
+    raw_name = unquote(Path(parsed.path).name)
+    if raw_name in KNOWN_FILENAMES:
+        return KNOWN_FILENAMES[raw_name]
+    if not raw_name.lower().endswith(".pdf"):
         # Handle arXiv PDF links like https://arxiv.org/pdf/2601.12686
-        name = f"{name}.pdf" if name else "document.pdf"
-    return name
+        raw_name = f"{raw_name}.pdf" if raw_name else "document.pdf"
+    return raw_name
 
 
 def main() -> int:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 import sys
 import time
 
@@ -10,10 +12,14 @@ import numpy as np
 
 from eval.extraction import evaluate_extraction
 from rules.checker import check_compliance
+from rules.profiles import load_utility_profiles
 from rules.schema import Constraint, RuleSet
 from sim.plant import fixed_floor_controller, noop_controller, simulate_plant
 from sim.shaft import load_shaft_model
 from workload.synth import generate_workload, preset_workloads
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PHASE3_CACHE = REPO_ROOT / "eval" / "cache" / "phase3_results.json"
 
 
 def run_phase1_validation() -> dict:
@@ -131,6 +137,38 @@ def main() -> int:
             f"Precision: {ext_summary.precision} | Recall: {ext_summary.recall} | "
             f"Hallucination: {ext_summary.hallucination_rate} | Abstention: {ext_summary.abstention_rate}"
         )
+
+    print(f"\n[eval:{args.mode}] Phase 3 Utility Profiles & Designer vs Baselines:")
+    all_profiles = load_utility_profiles(rated_mw=100.0)
+    dev_n = sum(1 for p in all_profiles if p.split == "dev")
+    held_n = sum(1 for p in all_profiles if p.split == "held_out")
+    print(f"  Loaded profiles: {dev_n} dev, {held_n} held_out")
+    if PHASE3_CACHE.exists():
+        p3 = json.loads(PHASE3_CACHE.read_text(encoding="utf-8"))
+        for rec in p3.get("profiles", []):
+            prof = rec["profile"]
+            if args.mode == "dev" and prof["split"] != "dev":
+                continue
+            u = rec["uncontrolled"]["eval_result"]
+            b1 = rec["b1"]["eval_result"]
+            b0 = rec["b0"]["eval_result"]
+            gs = rec["gridsafe"]
+            gs_ev = gs.get("best_eval")
+            gs_txt = (
+                f"{'PASS' if gs['passed'] else 'FAIL'} "
+                f"OH={gs_ev['mean_energy_overhead_pct']:.1f}% TP={gs_ev['mean_throughput_loss_pct']:.1f}%"
+                if gs_ev
+                else f"{gs['outcome']}"
+            )
+            print(
+                f"  [{prof['split']:8s}] {prof['profile_id']:18s} | "
+                f"Noop={'PASS' if u['passed'] else 'FAIL'} ({u['workloads_passed']}/{u['workloads_total']}) | "
+                f"B1={'PASS' if b1['passed'] else 'FAIL'} ({b1['workloads_passed']}/{b1['workloads_total']}, OH={b1['mean_energy_overhead_pct']:.1f}%) | "
+                f"B0={'PASS' if b0['passed'] else 'FAIL'} ({b0['workloads_passed']}/{b0['workloads_total']}, OH={b0['mean_energy_overhead_pct']:.1f}%) | "
+                f"GridSafe={gs_txt}"
+            )
+    else:
+        print("  No cached Phase 3 benchmark yet (run `python scripts/run_phase3_baselines.py`).")
 
     return 0 if p1["passed"] else 1
 

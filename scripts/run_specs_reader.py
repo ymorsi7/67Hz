@@ -24,15 +24,19 @@ from reader.verify import verify_constraints
 SPECS_DIR = REPO_ROOT / "specs"
 CACHE_DIR = REPO_ROOT / "eval" / "cache" / "extractions"
 
-# Split definition: held_out is NEVER used for choosing the abstention threshold.
+# Split definition: held_out is NEVER used for choosing the abstention threshold or tuning.
+# Any newly added PDF not listed as "dev" automatically defaults to "held_out".
 DOC_SPLITS: dict[str, str] = {
     "LL-Performance-Requirements-Framework-and-Methodology_v2.pdf": "dev",
     "Large-Load-Technical-Requirements-Straw-Proposal-Jun-15-2026.pdf": "dev",
+    "PerformanceRequirementsLargeLoadsConnectedLIPASystem.pdf": "dev",
     "2601.12686v1.pdf": "held_out",
+    "LargeComputationalLoads-20260501-Technical-Requirements.pdf": "held_out",
+    "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296.pdf": "held_out",
 }
 
 
-def run_all_specs(threshold: float | None = None) -> list[dict[str, Any]]:
+def run_all_specs(threshold: float | None = None, *, new_only: bool = False) -> list[dict[str, Any]]:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     pdfs = sorted(SPECS_DIR.glob("*.pdf"))
     if not pdfs:
@@ -42,6 +46,12 @@ def run_all_specs(threshold: float | None = None) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for pdf in pdfs:
         split = DOC_SPLITS.get(pdf.name, "held_out")
+        out_path = CACHE_DIR / f"{pdf.stem}.json"
+        if new_only and out_path.exists():
+            print(f"[CACHED] [{split}] {pdf.name} -> {out_path.relative_to(REPO_ROOT)}", flush=True)
+            records.append(json.loads(out_path.read_text(encoding="utf-8")))
+            continue
+
         group_by_sec = "2601.12686" in pdf.name  # Multi-utility comparative paper
         print(f"\n=== [{split}] Reading {pdf.name} ===", flush=True)
         t0 = time.perf_counter()
@@ -138,5 +148,14 @@ def print_summary(records: list[dict[str, Any]]) -> None:
 
 
 if __name__ == "__main__":
-    recs = run_all_specs()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run Reader + Verifier on PDFs in specs/.")
+    parser.add_argument(
+        "--new-only",
+        action="store_true",
+        help="Only process PDFs in specs/ that are not yet cached in eval/cache/extractions/.",
+    )
+    args = parser.parse_args()
+    recs = run_all_specs(new_only=args.new_only)
     print_summary(recs)

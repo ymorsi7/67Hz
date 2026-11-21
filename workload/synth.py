@@ -208,10 +208,12 @@ def preset_workloads(cluster_mw: float = 100.0) -> dict[str, WorkloadParams]:
             duty_cycle=0.75,
             depth=0.45,
             jitter=0.05,
+            edge_s=0.004,
             checkpoint_interval_s=4.0,
             checkpoint_duration_s=0.6,
             job_start_s=0.5,
-            job_stop_s=9.0,
+            job_start_ramp_s=0.05,
+            job_stop_s=None,
             seed=42,
         ),
         "ssr_mode1_attack": WorkloadParams(
