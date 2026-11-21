@@ -51,6 +51,9 @@ def test_ieee_fbm_modes_within_two_percent() -> None:
     for row in report["modes"]:
         assert row["within_gate"] is True
 
+    dom_sections = [name for name, _ in shaft.modal_dominant_sections()]
+    assert dom_sections == ["LPA-LPB", "GEN-EXC", "IP-LPA", "LPB-GEN", "HP-IP"]
+
 
 def test_shaft_resonance_amplifies_modal_excitation() -> None:
     """Excitation at Mode 1 (15.71 Hz) must produce far greater torque than off-resonance (5 Hz)."""
@@ -133,6 +136,21 @@ def test_energy_conservation_lossless_and_lossy() -> None:
     res_lossy = simulate_plant(trace, controller=active_controller, plant_config=lossy_cfg)
     assert res_lossy.metrics.energy_batt_loss_mwh > 0.0
     assert res_lossy.metrics.energy_balance_error_mwh < 1e-12
+    # Independent check directly from output arrays and BatteryConfig efficiencies (non-vacuous):
+    dt_h = trace.dt_s / 3600.0
+    dis_mwh = float(np.sum(np.maximum(res_lossy.p_batt_mw, 0.0)) * dt_h)
+    chg_mwh = float(np.sum(np.maximum(-res_lossy.p_batt_mw, 0.0)) * dt_h)
+    expected_loss = dis_mwh * (1.0 / lossy_cfg.battery.eta_discharge - 1.0) + chg_mwh * (
+        1.0 - lossy_cfg.battery.eta_charge
+    )
+    e_init = lossy_cfg.battery.initial_soc * lossy_cfg.battery.capacity_mwh
+    e_final = float(res_lossy.soc[-1]) * lossy_cfg.battery.capacity_mwh
+    indep_residual = abs(
+        float(np.sum(res_lossy.p_grid_mw) * dt_h)
+        + (e_init - e_final)
+        - (float(np.sum(res_lossy.p_gpu_mw) * dt_h) + expected_loss)
+    )
+    assert indep_residual < 1e-12
     assert res_lossy.metrics.battery_wear_proxy > 0.0
     assert res_lossy.metrics.battery_efc > 0.0
     assert np.all(res_lossy.soc >= 0.1 - 1e-12)

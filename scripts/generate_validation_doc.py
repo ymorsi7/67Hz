@@ -44,14 +44,14 @@ def main() -> None:
         "| --- | ---: | ---: | ---: | ---: | --- | ---: | --- |",
     ]
 
+    dom_sections = shaft.modal_dominant_sections()
     for idx, row in enumerate(mr["modes"]):
-        dom_idx = int(np.argmax(np.abs(shaft.stiffness_K * shaft.dphi_sections[:, idx])))
-        dom_sec = shaft.section_names[dom_idx]
+        dom_sec, dom_share_pct = dom_sections[idx]
         phi_gen = float(shaft.phi_gen[idx])
         gate_str = "PASS" if row["within_gate"] else "FAIL"
         lines.append(
             f"| Mode {row['mode']} | {row['computed_hz']:.4f} | {row['published_hz']:.2f} "
-            f"| {row['error_hz']:+.4f} | {row['error_pct']:.4f}% | `{dom_sec}` | {phi_gen:+.4f} | **{gate_str}** |"
+            f"| {row['error_hz']:+.4f} | {row['error_pct']:.4f}% | `{dom_sec}` ({dom_share_pct:.1f}% strain E) | {phi_gen:+.4f} | **{gate_str}** |"
         )
 
     lines.extend(

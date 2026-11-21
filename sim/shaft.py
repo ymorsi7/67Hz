@@ -110,6 +110,22 @@ class ShaftModel:
         self.dphi_sections = self.phi_torsional[1:, :] - self.phi_torsional[:-1, :]
         self.phi_gen = self.phi_torsional[self.gen_index, :]  # shape (n_torsional,)
 
+    def modal_dominant_sections(self) -> list[tuple[str, float]]:
+        """Return (section_name, strain_energy_share_pct) per torsional mode.
+
+        Uses modal elastic strain energy 0.5 * K_s * (dphi_{s,m})^2 so stiff
+        sections do not bias mode identification away from where the modal
+        elastic deformation actually concentrates.
+        """
+        out: list[tuple[str, float]] = []
+        for m in range(self.dphi_sections.shape[1]):
+            strain_e = 0.5 * self.stiffness_K * (self.dphi_sections[:, m] ** 2)
+            dom_idx = int(np.argmax(strain_e))
+            total_e = float(np.sum(strain_e))
+            share_pct = float(strain_e[dom_idx] / total_e * 100.0) if total_e > 0 else 0.0
+            out.append((self.section_names[dom_idx], share_pct))
+        return out
+
     def validate_modes(self, max_error_pct: float = 2.0) -> dict[str, Any]:
         """Compare computed torsional mode frequencies against published values."""
         if not self.published_modes_hz:

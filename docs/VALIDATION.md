@@ -1,6 +1,6 @@
 # GridSafe Physics & Checker Validation
 
-Generated from `scripts/generate_validation_doc.py` on 2026-11-21 16:01 UTC.
+Generated from `scripts/generate_validation_doc.py` on 2026-11-21 16:23 UTC.
 All numbers below come directly from deterministic runs of `sim/shaft.py`, `sim/plant.py`, `workload/synth.py`, and `rules/checker.py` (pure Python + `numpy`, no `scipy`).
 
 ## 1. IEEE First Benchmark Model Torsional Mode Validation
@@ -16,29 +16,29 @@ Source parameters: `config/fbm.yaml` (IEEE SSR Task Force, *First benchmark mode
 
 | Mode | Computed (Hz) | Published (Hz) | Error (Hz) | Error (%) | Dominant Section | `phi_GEN` | Gate (<= 2.0%) |
 | --- | ---: | ---: | ---: | ---: | --- | ---: | --- |
-| Mode 1 | 15.7122 | 15.71 | +0.0022 | 0.0140% | `LPA-LPB` | -8.3548 | **PASS** |
-| Mode 2 | 20.2113 | 20.21 | +0.0013 | 0.0066% | `GEN-EXC` | -2.6045 | **PASS** |
-| Mode 3 | 25.5472 | 25.55 | -0.0028 | 0.0111% | `IP-LPA` | +5.2197 | **PASS** |
-| Mode 4 | 32.2846 | 32.28 | +0.0046 | 0.0143% | `LPB-GEN` | -6.9324 | **PASS** |
-| Mode 5 | 47.4563 | 47.46 | -0.0037 | 0.0078% | `IP-LPA` | -0.1292 | **PASS** |
+| Mode 1 | 15.7122 | 15.71 | +0.0022 | 0.0140% | `LPA-LPB` (55.2% strain E) | -8.3548 | **PASS** |
+| Mode 2 | 20.2113 | 20.21 | +0.0013 | 0.0066% | `GEN-EXC` (91.5% strain E) | -2.6045 | **PASS** |
+| Mode 3 | 25.5472 | 25.55 | -0.0028 | 0.0111% | `IP-LPA` (43.8% strain E) | +5.2197 | **PASS** |
+| Mode 4 | 32.2846 | 32.28 | +0.0046 | 0.0143% | `LPB-GEN` (56.4% strain E) | -6.9324 | **PASS** |
+| Mode 5 | 47.4563 | 47.46 | -0.0037 | 0.0078% | `HP-IP` (58.2% strain E) | -0.1292 | **PASS** |
 
 **Max relative error:** `0.0143%` (gate: `<= 2.0%`) -> **PASS**.
 
 ## 2. Plant Simulation, Energy Conservation & Latency Gates
 
 - Evaluation latency gate (`< 500 ms` per full synth + time-stepped plant + frequency-domain shaft + checker evaluation):
-  - Mean: `14.3 ms`
-  - Max: `25.4 ms` -> **PASS**
+  - Mean: `14.5 ms`
+  - Max: `25.2 ms` -> **PASS**
 - Energy conservation ledger residual (`|E_grid - (E_final - E_init) - (E_gpu + E_batt_loss)|`):
-  - Max residual across all presets: `0.000e+00 MWh` (gate `< 1e-12 MWh`) -> **PASS**
+  - Max residual across all presets: `7.985e-13 MWh` (gate `< 1e-12 MWh`) -> **PASS**
 
 ### Preset Workload Benchmarks (100 MW cluster, 10 s trace, `dt = 2 ms`, 5,000 steps)
 
 | Preset | Eval Time (ms) | Uncontrolled Peak Torque (pu) | B1 (90% Floor) Peak Torque (pu) | B1 Energy Overhead (%) |
 | --- | ---: | ---: | ---: | ---: |
-| `standard_training` | 25.4 | 0.0935 | 0.0239 | 32.3% |
-| `ssr_mode1_attack` | 10.9 | 1.6460 | 0.3213 | 29.5% |
-| `ssr_mode2_attack` | 11.4 | 0.1203 | 0.0246 | 30.1% |
+| `standard_training` | 25.2 | 0.0935 | 0.0239 | 32.3% |
+| `ssr_mode1_attack` | 11.1 | 1.6460 | 0.3213 | 29.5% |
+| `ssr_mode2_attack` | 11.9 | 0.1203 | 0.0246 | 30.1% |
 | `abrupt_checkpoint_drop` | 9.7 | 0.0984 | 0.0159 | 38.3% |
 
 ## 3. Modeling Simplifications & Assumptions (Disclosed)

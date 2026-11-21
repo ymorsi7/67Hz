@@ -9,7 +9,8 @@ reader:
 verifier:
   api: decisions
   model: gemini-decision-1
-  confidence_threshold: 0.75
+  confidence_threshold: 0.85
+  readability_threshold: 0.60
   fallback_model: gemini-4-hydrogen
   fallback_active: false
   job: "Calibrated yes/no verification per extracted constraint against cited page image; abstain below threshold."

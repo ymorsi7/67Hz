@@ -239,7 +239,7 @@ def simulate_plant(
                 batt_i = b_cmd if b_cmd <= max_dis else max(0.0, max_dis)
                 de_int = (batt_i * dt_h) / eta_d
                 e_curr = max(e_min, e_curr - de_int)
-                total_batt_loss_mwh += de_int - (batt_i * dt_h)
+                total_batt_loss_mwh += (batt_i * dt_h) * ((1.0 / eta_d) - 1.0)
             elif b_cmd < 0.0:
                 # Charging: increases stored energy by p_chg * dt_h * eta_c
                 p_chg = -b_cmd
@@ -249,7 +249,7 @@ def simulate_plant(
                 batt_i = -p_chg
                 de_int = p_chg * dt_h * eta_c
                 e_curr = min(e_max, e_curr + de_int)
-                total_batt_loss_mwh += (p_chg * dt_h) - de_int
+                total_batt_loss_mwh += (p_chg * dt_h) * (1.0 - eta_c)
             else:
                 batt_i = 0.0
 

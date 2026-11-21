@@ -107,6 +107,10 @@ if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
 async def serve_spa(full_path: str) -> Any:
     if full_path.startswith("api/"):
         return {"error": "Not found"}
+    if full_path:
+        candidate = (FRONTEND_DIST / full_path).resolve()
+        if candidate.is_file() and FRONTEND_DIST.resolve() in candidate.parents:
+            return FileResponse(candidate)
     index_file = FRONTEND_DIST / "index.html"
     if index_file.exists():
         return FileResponse(index_file)

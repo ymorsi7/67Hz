@@ -8,6 +8,7 @@ import time
 
 import numpy as np
 
+from eval.extraction import evaluate_extraction
 from rules.checker import check_compliance
 from rules.schema import Constraint, RuleSet
 from sim.plant import fixed_floor_controller, noop_controller, simulate_plant
@@ -56,6 +57,17 @@ def run_phase1_validation() -> dict:
         sim_b1 = simulate_plant(trace, controller=fixed_floor_controller(0.90), shaft_model=shaft)
         rep_b1 = check_compliance(sim_b1, ruleset)
         max_energy_err = max(max_energy_err, sim_b1.metrics.energy_balance_error_mwh)
+
+        # Also exercise an active charge/discharge battery controller so energy ledger is non-trivial
+        def _active_batt_probe(obs: dict) -> dict[str, float]:
+            return {
+                "gpu_floor_mw": 45.0,
+                "gpu_cap_mw": 92.0,
+                "battery_setpoint_mw": 0.9 * (obs["p_raw_mw"] - 75.0),
+            }
+
+        sim_batt = simulate_plant(trace, controller=_active_batt_probe, shaft_model=shaft)
+        max_energy_err = max(max_energy_err, sim_batt.metrics.energy_balance_error_mwh)
 
         preset_summary.append(
             {
@@ -107,6 +119,17 @@ def main() -> int:
             f"| raw_torque={row['raw_max_torque_pu']:.4f} pu "
             f"| B1_90%_torque={row['b1_max_torque_pu']:.4f} pu "
             f"| B1_overhead={row['b1_energy_overhead_pct']:.1f}%"
+        )
+
+    ext_summary = evaluate_extraction()
+    print(f"\n[eval:{args.mode}] Phase 2 Extraction Evaluation:")
+    if ext_summary.status == "no gold labels":
+        print(f"  Status: {ext_summary.message}")
+    else:
+        print(
+            f"  Gold docs: {ext_summary.gold_files_found} | "
+            f"Precision: {ext_summary.precision} | Recall: {ext_summary.recall} | "
+            f"Hallucination: {ext_summary.hallucination_rate} | Abstention: {ext_summary.abstention_rate}"
         )
 
     return 0 if p1["passed"] else 1

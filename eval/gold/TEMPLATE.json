@@ -1,0 +1,25 @@
+{
+  "doc_id": "REPLACE_WITH_PDF_STEM",
+  "source_file": "specs/REPLACE_WITH_PDF_FILENAME.pdf",
+  "split": "dev",
+  "rated_mw": 100.0,
+  "labeled_by": "human",
+  "labeled_at_utc": "2026-11-21T00:00:00Z",
+  "notes": "Human-verified gold constraints created via scripts/label.py. Never fabricated by an LLM.",
+  "constraints": [
+    {
+      "id": "ramp_rate_0",
+      "constraint_type": "ramp_rate",
+      "value": 10.0,
+      "unit": "MW/min",
+      "page": 1,
+      "snippet": "Exact verbatim quote from source page",
+      "checkable": true,
+      "window_s": 60.0,
+      "freq_min_hz": null,
+      "freq_max_hz": null,
+      "source_section": "Section or Utility Name",
+      "notes": ""
+    }
+  ]
+}

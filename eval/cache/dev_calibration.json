@@ -1,0 +1,265 @@
+{
+  "split": "dev_only",
+  "source_pdf": "Large-Load-Technical-Requirements-Straw-Proposal-Jun-15-2026.pdf",
+  "no_limits_page": {
+    "page": 1,
+    "constraints_found": 0,
+    "checkable_found": 0,
+    "unreadable": false,
+    "summary": "Title page for the California ISO Large Load Technical Requirements Straw Proposal (Revision R0, June 15, 2026) prepared by the Large Load Technical Requirements Working Group."
+  },
+  "hallucination_controls": [
+    {
+      "constraint_id": "true_20mw_min",
+      "page": 13,
+      "p_yes": 0.9543,
+      "confidence": 0.9543,
+      "status": "verified",
+      "verified": true,
+      "needs_human_review": false,
+      "page_readable_p": 0.9458,
+      "reason": "Verified on p.13 (P(yes)=0.95, confidence=0.95)."
+    },
+    {
+      "constraint_id": "halluc_wrong_value_50mw_min",
+      "page": 13,
+      "p_yes": 0.0339,
+      "confidence": 0.9661,
+      "status": "rejected",
+      "verified": false,
+      "needs_human_review": true,
+      "page_readable_p": 0.9458,
+      "reason": "Rejected by Verifier on p.13 (P(yes)=0.03, confidence=0.97 that claim is unsupported)."
+    },
+    {
+      "constraint_id": "halluc_wrong_unit_20mw_s",
+      "page": 13,
+      "p_yes": 0.0596,
+      "confidence": 0.9404,
+      "status": "rejected",
+      "verified": false,
+      "needs_human_review": true,
+      "page_readable_p": 0.9458,
+      "reason": "Rejected by Verifier on p.13 (P(yes)=0.06, confidence=0.94 that claim is unsupported)."
+    },
+    {
+      "constraint_id": "halluc_invented_max_step",
+      "page": 13,
+      "p_yes": 0.046,
+      "confidence": 0.954,
+      "status": "rejected",
+      "verified": false,
+      "needs_human_review": true,
+      "page_readable_p": 0.9458,
+      "reason": "Rejected by Verifier on p.13 (P(yes)=0.05, confidence=0.95 that claim is unsupported)."
+    }
+  ],
+  "degradation_sweep": [
+    {
+      "severity": 1,
+      "spec": {
+        "severity": 1,
+        "rotation_deg": 2.5,
+        "blur_sigma": 0.6,
+        "res_scale": 0.8,
+        "skew_shear": 0.02,
+        "crop_fraction": 0.02,
+        "noise_std": 4.0
+      },
+      "reader_unreadable": false,
+      "reader_extracted_count": 1,
+      "reader_extracted": [
+        {
+          "constraint_type": "ramp_rate",
+          "value": 20.0,
+          "unit": "MW/min",
+          "page": 13,
+          "snippet": "The average active power ramp rate of the large load, measured over a rolling 10-minute interval, shall not exceed 20 MW/min.",
+          "checkable": true,
+          "confidence": 0.9637,
+          "id": "ramp_rate_0",
+          "window_s": 600.0,
+          "freq_min_hz": null,
+          "freq_max_hz": null,
+          "source_section": "2.4. Ramp Rate Limit",
+          "verified": true,
+          "needs_human_review": false,
+          "conflict_flag": false,
+          "notes": "Applies to normal operating conditions including routine operational changes, startup, shutdown, and restoration following outages; excludes automatic responses to faults or disturbances for equipment protection or fault ride-through performance."
+        }
+      ],
+      "page_readable_p": 0.8649,
+      "verifications": [
+        {
+          "constraint_id": "ramp_rate_0",
+          "page": 13,
+          "p_yes": 0.9637,
+          "confidence": 0.9637,
+          "status": "verified",
+          "verified": true,
+          "needs_human_review": false,
+          "page_readable_p": 0.8649,
+          "reason": "Verified on p.13 (P(yes)=0.96, confidence=0.96)."
+        },
+        {
+          "constraint_id": "true_p13_sev1",
+          "page": 13,
+          "p_yes": 0.9594,
+          "confidence": 0.9594,
+          "status": "verified",
+          "verified": true,
+          "needs_human_review": false,
+          "page_readable_p": 0.8649,
+          "reason": "Verified on p.13 (P(yes)=0.96, confidence=0.96)."
+        }
+      ]
+    },
+    {
+      "severity": 2,
+      "spec": {
+        "severity": 2,
+        "rotation_deg": 6.0,
+        "blur_sigma": 1.4,
+        "res_scale": 0.55,
+        "skew_shear": 0.05,
+        "crop_fraction": 0.06,
+        "noise_std": 10.0
+      },
+      "reader_unreadable": false,
+      "reader_extracted_count": 1,
+      "reader_extracted": [
+        {
+          "constraint_type": "ramp_rate",
+          "value": 20.0,
+          "unit": "MW/min",
+          "page": 13,
+          "snippet": "The average active power ramp rate of the large load, measured over a rolling 10-minute interval, shall not exceed 20 MW/min.",
+          "checkable": true,
+          "confidence": 0.941,
+          "id": "ramp_rate_0",
+          "window_s": 600.0,
+          "freq_min_hz": null,
+          "freq_max_hz": null,
+          "source_section": "2.4. Ramp Rate Limit",
+          "verified": true,
+          "needs_human_review": false,
+          "conflict_flag": false,
+          "notes": "Applies to normal operating conditions including routine operational changes, startup, shutdown, and restoration following outages; does not apply to automatic responses to faults or disturbances for equipment protection or fault ride-through."
+        }
+      ],
+      "page_readable_p": 0.8423,
+      "verifications": [
+        {
+          "constraint_id": "ramp_rate_0",
+          "page": 13,
+          "p_yes": 0.941,
+          "confidence": 0.941,
+          "status": "verified",
+          "verified": true,
+          "needs_human_review": false,
+          "page_readable_p": 0.8423,
+          "reason": "Verified on p.13 (P(yes)=0.94, confidence=0.94)."
+        },
+        {
+          "constraint_id": "true_p13_sev2",
+          "page": 13,
+          "p_yes": 0.9379,
+          "confidence": 0.9379,
+          "status": "verified",
+          "verified": true,
+          "needs_human_review": false,
+          "page_readable_p": 0.8423,
+          "reason": "Verified on p.13 (P(yes)=0.94, confidence=0.94)."
+        }
+      ]
+    },
+    {
+      "severity": 3,
+      "spec": {
+        "severity": 3,
+        "rotation_deg": 11.0,
+        "blur_sigma": 2.5,
+        "res_scale": 0.35,
+        "skew_shear": 0.09,
+        "crop_fraction": 0.12,
+        "noise_std": 18.0
+      },
+      "reader_unreadable": false,
+      "reader_extracted_count": 1,
+      "reader_extracted": [
+        {
+          "constraint_type": "ramp_rate",
+          "value": 20.0,
+          "unit": "MW/min",
+          "page": 13,
+          "snippet": "The average active power ramp rate of the large load, measured over a rolling 10-minute interval, shall not exceed 20 MW/min.",
+          "checkable": true,
+          "confidence": 0.8741,
+          "id": "ramp_rate_0",
+          "window_s": 600.0,
+          "freq_min_hz": null,
+          "freq_max_hz": null,
+          "source_section": "",
+          "verified": null,
+          "needs_human_review": true,
+          "conflict_flag": false,
+          "notes": "Applies to normal operating conditions, including routine operational changes, startup, shutdown, and restoration following outages; does not apply to automatic responses to faults or disturbances required for equipment protection or fault ride-through performance."
+        }
+      ],
+      "page_readable_p": 0.2579,
+      "verifications": [
+        {
+          "constraint_id": "ramp_rate_0",
+          "page": 13,
+          "p_yes": 0.8741,
+          "confidence": 0.8741,
+          "status": "abstained",
+          "verified": null,
+          "needs_human_review": true,
+          "page_readable_p": 0.2579,
+          "reason": "Abstained: page 13 readability score 0.26 < 0.60 (Needs human review)."
+        },
+        {
+          "constraint_id": "true_p13_sev3",
+          "page": 13,
+          "p_yes": 0.8786,
+          "confidence": 0.8786,
+          "status": "abstained",
+          "verified": null,
+          "needs_human_review": true,
+          "page_readable_p": 0.2579,
+          "reason": "Abstained: page 13 readability score 0.26 < 0.60 (Needs human review)."
+        }
+      ]
+    },
+    {
+      "severity": 4,
+      "spec": {
+        "severity": 4,
+        "rotation_deg": 18.0,
+        "blur_sigma": 5.0,
+        "res_scale": 0.16,
+        "skew_shear": 0.14,
+        "crop_fraction": 0.22,
+        "noise_std": 32.0
+      },
+      "reader_unreadable": true,
+      "reader_extracted_count": 0,
+      "reader_extracted": [],
+      "page_readable_p": 0.1314,
+      "verifications": [
+        {
+          "constraint_id": "true_p13_sev4",
+          "page": 13,
+          "p_yes": 0.2886,
+          "confidence": 0.7114,
+          "status": "abstained",
+          "verified": null,
+          "needs_human_review": true,
+          "page_readable_p": 0.1314,
+          "reason": "Abstained: page 13 readability score 0.13 < 0.60 (Needs human review)."
+        }
+      ]
+    }
+  ]
+}

@@ -3,10 +3,13 @@ PYTEST := .venv/bin/pytest
 UVICORN := .venv/bin/uvicorn
 PORT ?= 8000
 
-.PHONY: test eval eval-final run replay demo-check build-ui
+.PHONY: test eval eval-final run replay demo-check build-ui fetch-specs
 
 build-ui:
 	cd frontend && npm run build
+
+fetch-specs:
+	$(PYTHON) scripts/fetch_specs.py
 
 test:
 	$(PYTEST) -q
