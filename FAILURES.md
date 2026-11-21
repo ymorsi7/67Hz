@@ -188,6 +188,28 @@ Tracks real failure modes discovered during development, live runs on real utili
   - `band_long` `120 s`: same rules **evaluable**; aggregations distinguish adjacent-pair vs band-sum on hand-computed two-tone tests.
   - Native LIPA re-read → profile **`lipa_pseg`** (4 checkable rules with correct aggregations). Preset rerun: Noop/B1 **FAIL**; B3 seed101 **PASS** OH **3.38%**; GridSafe seeds **101/202/303** all **`evolved_compliant`** (OH **3.48% / 3.50% / 3.81%**) — seed 101 no longer hits the **41.4%** conservative floor (old CAISO-straw `lipa` profile).
 
+---
+
+## F16. Ungated Hardener Fix Regressed `lipa` on Unseen Workloads (19→13/20)
+
+- **Category:** Fix acceptance / generalization (`agents/verify.py` gate, `agents/bridge.py`, `server/agent_api.py`, `agents/harden.py`)
+- **Example:** On the cached GridSafe `lipa` controller, a host-verified Rand20 break (`fluctuation_band_25`) triggered an engineer B3-seeded evolve. The candidate cleared the counterexample and was **accepted without a validation suite**, then scored worse on never-used SEED=4242: **19/20 → 13/20** (Δ=−6; `eval/results/harden_fix_4242.json`). Same cycle **helped** `lipa_pseg` (**18→20/20** @4242).
+- **What changed:** Backend now accepts a fix only if it (a) passes every counterexample, (b) passes every preset, and (c) passes **at least as many** workloads as the current controller on validation random suite **SEED=9001** (gate-only; never a holdout score). A rejected fix **keeps the current controller** and logs the counterexample to `eval/attacks/open_issues.jsonl`. `/api/agents/harden` streams `fix rejected: it made things worse on N other workloads` on validation regression. Reran under the gate with holdout **SEED=31337** (`eval/results/harden_fix_31337.json`); ungated 4242 numbers are kept in RESULTS.
+- **Before vs After:**
+  - Ungated `lipa` @4242: **19/20 → 13/20** (accepted, hurt); `lipa_pseg` @4242: **18→20/20** (helped).
+  - Gated re-run @31337 (`harden_fix_31337.json`): both profiles **gate-rejected** (`counterexample_still_breaks`); current kept (**lipa** 20→20, **lipa_pseg** 19→19). Rejected `lipa` candidate would have been **18/20** on that holdout.
+
+---
+
+## F17. Reader Typed IESO's 600 MW Load-Loss Limit as `max_step`; Verifier Confirmed It
+
+- **Category:** Extraction type error / Verifier question design (`reader/extract.py`, `reader/verify.py`)
+- **Example:** IESO `LargeComputationalLoads-20260501-Technical-Requirements.pdf` p. 7 states *"No internal single point failure within the project results in a load loss above 600 MW..."* — a **facility contingency / load-loss** limit, not a controller step limit. The Reader emitted `max_step = 600.0 MW` (gold labels it `wrong_value_or_type` in `eval/results/fp_breakdown.json`). The Verifier (`gemini-decision-1`) confirmed the value because its `noul` question only checks that **the number and unit appear on the cited page**, not whether the rule is a step limit vs a load-loss contingency.
+- **What changed:** Documented as a known failure mode. No silent claim that Verifier confirmation implies correct constraint *type*; gold / human review still required for type mismatches. (Fixing the Verifier prompt to ask "is this a maximum instantaneous step of grid power?" is follow-up work if time allows.)
+- **Before vs After:**
+  - Extraction FP inventory: **1 / 9** FPs are invented/wrong-type — this IESO 600 MW `max_step` is that case.
+  - Verifier: value present on page → **confirmed**; rule-kind check → **not performed** (still open).
+
 
 
 

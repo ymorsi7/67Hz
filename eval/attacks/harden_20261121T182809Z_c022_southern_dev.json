@@ -1,0 +1,21 @@
+{
+  "reply": {
+    "ok": false,
+    "from": "gridsafe-hardener",
+    "to": "gridsafe-engineer",
+    "round": 22,
+    "latency_s": 90.051,
+    "error": "APITimeoutError: Request timed out. This is a client-side timeout. You can increase the timeout by setting the `timeout` argument on your request or in the client http options.",
+    "reply": {
+      "status": "no_break_within_budget",
+      "notes": "hardener timed out; host will verify independently",
+      "counterexamples": []
+    }
+  },
+  "check": {
+    "break_found": false,
+    "verified_breaks": [],
+    "source": "host_random_suite"
+  },
+  "controller_code": "import math\n\n\ndef control(obs: dict) -> dict[str, float]:\n    p_raw = float(obs[\"p_raw_mw\"])\n    rated = float(obs[\"rated_mw\"])\n    dt = float(obs[\"dt\"])\n    soc = float(obs[\"soc\"])\n    b_max = float(obs[\"battery_max_power_mw\"])\n    cap = float(obs[\"battery_capacity_mwh\"])\n    e = float(obs[\"battery_energy_mwh\"])\n    idle = float(obs.get(\"idle_mw\", obs[\"p_prev_grid_mw\"]))\n    st = obs[\"state\"]\n\n    if \"y1\" not in st:\n        st[\"y1\"] = idle\n        st[\"pg\"] = idle\n        st[\"b1\"] = [(idle, idle)] * 61\n        st[\"b2\"] = [(idle, idle)] * 121\n        st[\"c1\"] = [idle, idle, 0.0]\n        st[\"c2\"] = [idle, idle, 0.0]\n\n    preload = 8.0 if (p_raw <= idle + 2.0 and soc < 0.70) else 0.0\n    desired = min(rated, max(0.0, p_raw + preload + 0.10 * (0.40 - soc) * b_max))\n\n    alpha = dt / (0.8 + dt)\n    st[\"y1\"] = (1.0 - alpha) * st[\"y1\"] + alpha * desired\n\n    min1 = min(st[\"c1\"][0], min(x[0] for x in st[\"b1\"]))\n    max1 = max(st[\"c1\"][1], max(x[1] for x in st[\"b1\"]))\n    min2 = min(st[\"c2\"][0], min(x[0] for x in st[\"b2\"]))\n    max2 = max(st[\"c2\"][1], max(x[1] for x in st[\"b2\"]))\n\n    lo = max(0.0, max1 - 9.6, max2 - 19.4, st[\"pg\"] - 4.0 * dt)\n    hi = min(rated, min1 + 9.6, min2 + 19.4, st[\"pg\"] + 4.0 * dt)\n    p_target = max(lo, min(hi, st[\"y1\"])) if lo <= hi else 0.5 * (lo + hi)\n    st[\"pg\"] = p_target\n\n    for c, b, win, n in ((st[\"c1\"], st[\"b1\"], 0.1, 61), (st[\"c2\"], st[\"b2\"], 0.5, 121)):\n        c[0] = min(c[0], p_target)\n        c[1] = max(c[1], p_target)\n        c[2] += dt\n        if c[2] >= win:\n            b.append((c[0], c[1]))\n            if len(b) > n:\n                b.pop(0)\n            c[0], c[1], c[2] = p_target, p_target, 0.0\n\n    dt_h = dt / 3600.0\n    eta = math.sqrt(0.90)\n    b_dis_max = min(b_max, max(0.0, (e - 0.1 * cap) * eta / dt_h))\n    b_chg_max = min(b_max, max(0.0, (0.9 * cap - e) / (eta * dt_h)))\n\n    if p_target < p_raw - b_dis_max:\n        return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": p_target + b_dis_max, \"battery_setpoint_mw\": b_dis_max}\n    if p_target > p_raw + b_chg_max:\n        return {\"gpu_floor_mw\": p_target - b_chg_max, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": -b_chg_max}\n    return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": p_raw - p_target}\n"
+}

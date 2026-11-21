@@ -8,7 +8,6 @@ import {
   Loader2,
   RotateCcw,
   ScrollText,
-  ShieldCheck,
   X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -20,10 +19,13 @@ import { PowerChart } from "@/components/PowerChart"
 import { ShaftAnim } from "@/components/ShaftAnim"
 import { RuleBar } from "@/components/RuleBar"
 import { confirmBadge, plainRule } from "@/lib/plain"
+import { MarkdownDoc } from "@/components/MarkdownDoc"
 import {
   addImagePage,
   attack,
+  confirmConstraint,
   fetchAgentTally,
+  fetchDocsResults,
   fetchHealth,
   loadReplaySession,
   removeConstraint,
@@ -37,6 +39,38 @@ import {
 } from "@/lib/api"
 
 type Tone = "idle" | "busy" | "error" | "ok"
+
+function metricsFromTraces(tr: Record<string, unknown> | null | undefined) {
+  const m = (tr?.metrics as Record<string, unknown> | undefined) ?? undefined
+  if (!m) {
+    return {
+      extra: null as number | null,
+      slowed: null as number | null,
+      wear: null as number | null,
+      spanLabel: null as string | null,
+      from30min: false,
+      coldSlowed: null as number | null,
+    }
+  }
+  const cold = (m.cold_start as Record<string, unknown> | undefined) ?? undefined
+  const span =
+    typeof m.span_label === "string"
+      ? m.span_label
+      : m.from_30min
+        ? "Over a 30-minute run"
+        : typeof m.duration_s === "number"
+          ? `Over a ${m.duration_s}s run`
+          : null
+  return {
+    extra: typeof m.extra_energy_pct === "number" ? m.extra_energy_pct : null,
+    slowed: typeof m.training_slowed_pct === "number" ? m.training_slowed_pct : null,
+    wear: typeof m.battery_wear === "number" ? m.battery_wear : null,
+    spanLabel: span,
+    from30min: Boolean(m.from_30min),
+    coldSlowed:
+      typeof cold?.training_slowed_pct === "number" ? (cold.training_slowed_pct as number) : null,
+  }
+}
 
 export function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
@@ -67,7 +101,17 @@ export function App() {
     extra: number | null
     slowed: number | null
     wear: number | null
-  }>({ extra: null, slowed: null, wear: null })
+    spanLabel: string | null
+    from30min: boolean
+    coldSlowed: number | null
+  }>({ extra: null, slowed: null, wear: null, spanLabel: null, from30min: false, coldSlowed: null })
+  const [resultsOpen, setResultsOpen] = useState(false)
+  const [resultsMd, setResultsMd] = useState<string | null>(null)
+  const [failuresMd, setFailuresMd] = useState<string | null>(null)
+  const [resultsMsg, setResultsMsg] = useState<string | null>(null)
+  const [failuresMsg, setFailuresMsg] = useState<string | null>(null)
+  const [pickPdfPages, setPickPdfPages] = useState(false)
+  const [noRulePhoto, setNoRulePhoto] = useState(false)
   const [bestDiff, setBestDiff] = useState("")
   const [rawLog, setRawLog] = useState<string[]>([])
   const [controllerCode, setControllerCode] = useState<string | null>(null)
@@ -152,7 +196,10 @@ export function App() {
     setWinnerLine("")
     setAuthorLine("")
     setEvolveStatus("")
-    setMetrics({ extra: null, slowed: null, wear: null })
+    setMetrics({ extra: null, slowed: null, wear: null, spanLabel: null, from30min: false, coldSlowed: null })
+    setResultsOpen(false)
+    setPickPdfPages(false)
+    setNoRulePhoto(false)
     setBestDiff("")
     setRawLog([])
     setControllerCode(null)
@@ -370,6 +417,9 @@ export function App() {
               extra: typeof d.extra_energy_pct === "number" ? d.extra_energy_pct : null,
               slowed: typeof d.training_slowed_pct === "number" ? d.training_slowed_pct : null,
               wear: typeof d.battery_wear === "number" ? d.battery_wear : null,
+              spanLabel: null,
+              from30min: false,
+              coldSlowed: null,
             })
             setControllerCode((d.best_code as string) || null)
             if (typeof d.best_diff === "string") setBestDiff(d.best_diff)
@@ -386,14 +436,7 @@ export function App() {
               if (st.has_traces) {
                 const tr = await (await fetch(`/api/ui/session/${sessionId}/traces`)).json()
                 setTraces(tr)
-                const m = tr.metrics as Record<string, number> | undefined
-                if (m) {
-                  setMetrics({
-                    extra: m.extra_energy_pct ?? null,
-                    slowed: m.training_slowed_pct ?? null,
-                    wear: m.battery_wear ?? null,
-                  })
-                }
+                setMetrics(metricsFromTraces(tr))
               }
             } catch {
               /* ignore */
@@ -551,14 +594,7 @@ export function App() {
       if (loaded.has_traces) {
         const tr = await (await fetch(`/api/ui/session/${loaded.session_id}/traces`)).json()
         setTraces(tr)
-        const m = tr.metrics as Record<string, number> | undefined
-        if (m) {
-          setMetrics({
-            extra: m.extra_energy_pct ?? null,
-            slowed: m.training_slowed_pct ?? null,
-            wear: m.battery_wear ?? null,
-          })
-        }
+        setMetrics(metricsFromTraces(tr))
       }
       setCompleted(new Set(STEPS))
       setStep("Controller")
@@ -570,10 +606,13 @@ export function App() {
     }
   }
 
-  const runReadVerifyAppend = async (sid: string, pages: number[]) => {
+  const runReadVerifyAppend = async (sid: string, pages: number[], fromCamera = false) => {
     setAddRuleBusy(true)
     setTone("busy")
     setStatusMsg("Reading new rule…")
+    setNoRulePhoto(false)
+    setPickPdfPages(false)
+    let gotConstraint = false
     try {
       await selectPages(sid, pages)
       await streamPost(
@@ -583,6 +622,7 @@ export function App() {
           status: (d) => setStatusMsg(String(d.message ?? "")),
           constraint: (d) => {
             const row = d as unknown as ConstraintRow
+            gotConstraint = true
             setConstraints((prev) => {
               const idx = prev.findIndex((c) => c.id === row.id)
               if (idx >= 0) {
@@ -593,15 +633,27 @@ export function App() {
               return [...prev, row]
             })
           },
+          read_complete: (d) => {
+            if (Number(d.count ?? 0) === 0) gotConstraint = false
+          },
           verify_complete: (d) => {
             if (Array.isArray(d.constraints)) setConstraints(d.constraints as ConstraintRow[])
+            const appended = Array.isArray(d.constraints)
+              ? (d.constraints as ConstraintRow[]).filter((c) => pages.includes(c.page))
+              : []
+            if (fromCamera && !gotConstraint && appended.length === 0) {
+              setNoRulePhoto(true)
+              setStatusMsg("No rule found in this photo")
+            } else {
+              setNoRulePhoto(false)
+              setStatusMsg("Rules updated — design a controller against every confirmed rule")
+            }
             setControllerCode(null)
             setTraces(null)
             setCertificate(null)
             setHeadline("")
             setVerdict("")
             setTone("ok")
-            setStatusMsg("Rules updated — design a controller against every confirmed rule")
             setStep("Rules")
           },
           error: (d) => {
@@ -618,12 +670,44 @@ export function App() {
     }
   }
 
+  const openResults = async () => {
+    setResultsOpen(true)
+    try {
+      const docs = await fetchDocsResults()
+      setResultsMd(docs.results.exists ? docs.results.markdown : null)
+      setFailuresMd(docs.failures.exists ? docs.failures.markdown : null)
+      setResultsMsg(docs.results.message)
+      setFailuresMsg(docs.failures.message)
+    } catch (err) {
+      setResultsMd(null)
+      setFailuresMd(null)
+      setResultsMsg(String(err))
+      setFailuresMsg(null)
+    }
+  }
+
+  const onHumanConfirm = async (id: string) => {
+    if (!sessionId) return
+    try {
+      const res = await confirmConstraint(sessionId, id)
+      setConstraints(res.constraints)
+      setControllerCode(null)
+      setTraces(null)
+      setCertificate(null)
+      setHeadline("")
+      setVerdict("")
+      setStatusMsg("Rule confirmed by a person — design a controller against every confirmed rule")
+    } catch (err) {
+      setError(String(err))
+    }
+  }
+
   const onAddCameraRule = async (file: File) => {
     if (!sessionId) return
     try {
       const res = await addImagePage(sessionId, file)
       setPageCount(res.page_count)
-      await runReadVerifyAppend(sessionId, [res.page])
+      await runReadVerifyAppend(sessionId, [res.page], true)
     } catch (err) {
       setError(String(err))
       setTone("error")
@@ -867,13 +951,23 @@ export function App() {
       <div className="flex-1 flex flex-col max-w-[1200px] w-full mx-auto px-5 pt-5 pb-2 gap-4">
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <ShieldCheck className="h-8 w-8 text-emerald-400" />
+            <img
+              src="/favicon.png"
+              alt=""
+              width={40}
+              height={40}
+              className="h-10 w-10 rounded-[10px] object-cover shadow-[0_0_0_1px_rgba(255,255,255,0.06)]"
+              decoding="async"
+            />
             <div>
               <h1 className="text-2xl font-semibold tracking-tight leading-none">GridSafe</h1>
               <p className="text-sm text-muted-foreground mt-1">Rulebook → controller that follows it</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => void openResults()}>
+              Results
+            </Button>
             {(step === "Controller" || step === "Break") && (
               <Button variant="secondary" size="sm" onClick={() => setCertOpen(true)}>
                 <ScrollText className="h-4 w-4" />
@@ -1089,6 +1183,21 @@ export function App() {
                           <Loader2 className="h-4 w-4 animate-spin" /> {statusMsg || "Reading…"}
                         </p>
                       )}
+                      {noRulePhoto && (
+                        <div className="border border-amber-500/40 bg-amber-950/30 px-4 py-3 space-y-2">
+                          <p className="text-base text-amber-100">No rule found in this photo</p>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setNoRulePhoto(false)
+                              addCamInputRef.current?.click()
+                            }}
+                          >
+                            Retake
+                          </Button>
+                        </div>
+                      )}
                       {checkable.map((c) => {
                         const badge = confirmBadge(c)
                         const source =
@@ -1123,9 +1232,18 @@ export function App() {
                                 {badge.label}
                               </Badge>
                               {badge.tone === "warn" && (
-                                <span className="text-xs text-amber-200/90">
-                                  GridSafe will not build on a rule it cannot confirm.
-                                </span>
+                                <>
+                                  <span className="text-xs text-amber-200/90">
+                                    GridSafe will not build on a rule it cannot confirm.
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => void onHumanConfirm(c.id)}
+                                  >
+                                    I checked the page: this rule is correct
+                                  </Button>
+                                </>
                               )}
                             </div>
                           </div>
@@ -1158,18 +1276,8 @@ export function App() {
                         </Button>
                         <Button
                           variant="ghost"
-                          disabled={!sessionId || addRuleBusy}
-                          onClick={() => {
-                            const used = new Set(constraints.map((c) => c.page))
-                            const next = Array.from({ length: pageCount }, (_, i) => i + 1).find(
-                              (p) => !used.has(p),
-                            )
-                            if (sessionId && next != null && pageCount > 1) {
-                              void runReadVerifyAppend(sessionId, [next])
-                            } else {
-                              addFileRef.current?.click()
-                            }
-                          }}
+                          disabled={!sessionId || addRuleBusy || pageCount < 1}
+                          onClick={() => setPickPdfPages((v) => !v)}
                         >
                           <FileUp className="h-4 w-4" />
                           Another PDF page
@@ -1199,6 +1307,32 @@ export function App() {
                           }}
                         />
                       </div>
+                      {pickPdfPages && sessionId && (
+                        <div className="space-y-2 pt-2">
+                          <p className="text-sm text-muted-foreground">Pick a page to add</p>
+                          <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-[220px] overflow-auto">
+                            {Array.from({ length: pageCount }, (_, i) => i + 1).map((p) => (
+                              <button
+                                key={p}
+                                type="button"
+                                disabled={addRuleBusy}
+                                onClick={() => void runReadVerifyAppend(sessionId, [p])}
+                                className="relative border border-border/50 aspect-[3/4] overflow-hidden hover:border-emerald-400"
+                              >
+                                <img
+                                  src={thumbnailUrl(sessionId, p)}
+                                  alt={`Page ${p}`}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                                <span className="absolute bottom-1 left-1 font-mono text-[11px] bg-black/70 px-1">
+                                  p.{p}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1327,11 +1461,22 @@ export function App() {
 
                   {/* f) Cost */}
                   {(metrics.extra != null || metrics.slowed != null) && (
-                    <p className="text-lg">
-                      Cost:{" "}
-                      {metrics.extra != null ? `${metrics.extra.toFixed(1)}%` : "—"} extra energy, training{" "}
-                      {metrics.slowed != null ? `${metrics.slowed.toFixed(1)}%` : "—"} slower.
-                    </p>
+                    <div className="space-y-1">
+                      <p className="text-lg">
+                        {metrics.from30min || metrics.spanLabel?.includes("30-minute")
+                          ? "Over a 30-minute run"
+                          : metrics.spanLabel || "Cost"}
+                        :{" "}
+                        {metrics.extra != null ? `${metrics.extra.toFixed(1)}%` : "—"} extra energy,
+                        training {metrics.slowed != null ? `${metrics.slowed.toFixed(1)}%` : "—"} slower.
+                      </p>
+                      {metrics.coldSlowed != null && (
+                        <p className="text-xs text-muted-foreground">
+                          First 20 seconds after a cold start: {metrics.coldSlowed.toFixed(1)}% slower,
+                          because the rule limits how fast power may rise.
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {/* g) Buttons */}
@@ -1581,6 +1726,29 @@ export function App() {
         </span>
       </footer>
 
+      {resultsOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-background border border-border w-full max-w-4xl max-h-[90vh] overflow-auto p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-2xl font-semibold">Results</h3>
+              <Button variant="ghost" size="sm" onClick={() => setResultsOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="space-y-8">
+              <section>
+                <h4 className="text-lg font-semibold mb-2 font-mono text-muted-foreground">RESULTS.md</h4>
+                <MarkdownDoc markdown={resultsMd} emptyLabel={resultsMsg || "not generated yet"} />
+              </section>
+              <section>
+                <h4 className="text-lg font-semibold mb-2 font-mono text-muted-foreground">FAILURES.md</h4>
+                <MarkdownDoc markdown={failuresMd} emptyLabel={failuresMsg || "not generated yet"} />
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+
       {codeOpen && controllerCode && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">
           <div className="bg-background border border-border w-full max-w-3xl max-h-[85vh] overflow-auto p-5">
@@ -1636,6 +1804,10 @@ export function App() {
                 used_pct_of_limit: null,
                 how_measured: "",
                 simplified_measurement: false,
+                human_confirmed: c.human_confirmed,
+                confirm_label: c.human_confirmed
+                  ? "Confirmed by a person, not by the Verifier"
+                  : null,
               }))).map((r, i) => (
                 <div key={i} className="border border-border/50 px-3 py-3">
                   <p className="text-base">{String(r.plain)}</p>
@@ -1643,6 +1815,11 @@ export function App() {
                     {String(r.entity || "Utility")} · page {String(r.page)}
                     {r.used_pct_of_limit != null ? ` · uses ${r.used_pct_of_limit}% of the limit` : ""}
                   </p>
+                  {(r.confirm_label || r.human_confirmed) && (
+                    <p className="text-sm mt-2 text-emerald-300">
+                      {String(r.confirm_label || "Confirmed by a person, not by the Verifier")}
+                    </p>
+                  )}
                   {r.how_measured ? (
                     <p className="text-sm mt-2 text-muted-foreground">
                       <span className="text-foreground/80">How it was measured: </span>

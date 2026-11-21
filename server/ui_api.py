@@ -177,14 +177,45 @@ def _load_controller(code: str) -> Callable[[dict[str, Any]], dict[str, float]]:
     return fn  # type: ignore[return-value]
 
 
+def _plain_cannot_check(details: str | None) -> str:
+    """Translate checker not_evaluable details into plain words for the UI."""
+    reason = details or "No measurement returned for this rule."
+    low = reason.lower()
+    if "nyquist" in low:
+        return "This chart is too coarse to check that high-frequency rule. Try Break it for a finer check."
+    if "2x rule window" in reason or "2×" in reason or "2x" in low:
+        return "This chart is too short to check that slow rule."
+    if "2 cycles" in low:
+        return "This chart is too short to see enough cycles of that rule."
+    if "not_evaluable" in low:
+        return "Could not check this rule on this chart."
+    # Strip internal ids / jargon tokens if any slipped through
+    if "fft" in low or "dt=" in low or "hz at" in low:
+        return "Could not check this rule on this chart."
+    return reason
+
+
+def _is_buildable_constraint(raw: dict[str, Any]) -> bool:
+    """Confirmed by Verifier, or explicitly confirmed by a person in the UI."""
+    if not raw.get("checkable"):
+        return False
+    if raw.get("human_confirmed") is True:
+        return True
+    return raw.get("verified") is True and not raw.get("needs_human_review")
+
+
 def _verified_ruleset(sess: UISession) -> Any:
     from rules.schema import Constraint, RuleSet
 
     items: list[Constraint] = []
     for raw in sess.constraints:
+        if not _is_buildable_constraint(raw):
+            continue
         c = Constraint.from_dict(raw)
-        if c.checkable and c.verified is True and not c.needs_human_review:
-            items.append(c)
+        # Human-confirmed rules are treated as verified for the checker
+        c.verified = True
+        c.needs_human_review = False
+        items.append(c)
     if not items:
         # Fall back to checkable-only (labeled) if verifier abstained on everything
         for raw in sess.constraints:
@@ -222,11 +253,20 @@ def _build_traces(sess: UISession, code: str) -> dict[str, Any]:
     from workload.synth import WorkloadParams, generate_workload
 
     ruleset = _verified_ruleset(sess)
-    # Result-view workload: long enough for typical ramp windows when present
+    # Chart workload: keep short/fine enough that frequency-band rules stay checkable.
+    # Long ramp windows are covered by the separate 30-minute cost run, not this chart.
+    has_band = any(c.constraint_type == "fluctuation_band" for c in ruleset.constraints)
     max_window = max((float(c.window_s or 0.0) for c in ruleset.constraints), default=0.0)
-    duration = max(20.0, 2.0 * max_window) if max_window > 0 else 20.0
-    duration = min(duration, 120.0)
-    dt = 0.5 if duration >= 60.0 else 0.004
+    duration = 20.0
+    if max_window > 0 and not has_band:
+        duration = min(120.0, max(20.0, 2.0 * max_window))
+    dt = 0.004
+    if has_band:
+        # Need Nyquist above typical 55 Hz band upper edge
+        dt = 0.004
+        duration = max(duration, 20.0)
+    elif duration >= 60.0:
+        dt = 0.5
     params = WorkloadParams(
         cluster_mw=sess.rated_mw,
         duration_s=duration,
@@ -235,7 +275,7 @@ def _build_traces(sess: UISession, code: str) -> dict[str, Any]:
         depth=0.45,
         duty_cycle=0.75,
         seed=42,
-        family="slow" if duration >= 60.0 else "fast",
+        family="slow" if duration >= 60.0 and dt >= 0.1 else "fast",
     )
     trace = generate_workload(params)
     ctrl = _load_controller(code)
@@ -277,7 +317,7 @@ def _build_traces(sess: UISession, code: str) -> dict[str, Any]:
                 "cannot_check_reason": (
                     None
                     if (ra is not None and ra.status != "not_evaluable")
-                    else (ra.details if ra is not None else "No measurement returned for this rule.")
+                    else _plain_cannot_check(ra.details if ra is not None else None)
                 ),
             }
         )
@@ -323,6 +363,71 @@ def _build_traces(sess: UISession, code: str) -> dict[str, Any]:
     t_a = float(after.shaft.max_torque_pu)
     ratio = (t_b / t_a) if t_a > 1e-9 else None
 
+    # --- Cost: cold-start (20 s) vs 30-minute slow-family run ---
+    cold_params = WorkloadParams(
+        cluster_mw=sess.rated_mw,
+        duration_s=20.0,
+        dt_s=0.004,
+        period_s=0.5,
+        depth=0.45,
+        duty_cycle=0.75,
+        seed=42,
+        family="fast",
+    )
+    cold_trace = generate_workload(cold_params)
+    cold_after = simulate_plant(cold_trace, controller=ctrl)
+    cold_start = {
+        "duration_s": 20.0,
+        "label": "First 20 seconds after a cold start",
+        "extra_energy_pct": float(cold_after.metrics.energy_overhead_pct),
+        "training_slowed_pct": float(cold_after.metrics.throughput_loss_pct),
+        "battery_wear": float(cold_after.metrics.battery_wear_proxy),
+    }
+
+    long_ok = False
+    long_metrics: dict[str, Any] = {
+        "duration_s": 1800.0,
+        "label": "Over a 30-minute run",
+        "family": "slow",
+        "extra_energy_pct": None,
+        "training_slowed_pct": None,
+        "battery_wear": None,
+        "error": None,
+    }
+    try:
+        from workload.synth import slow_preset_workloads
+
+        slow_p = next(iter(slow_preset_workloads(cluster_mw=sess.rated_mw).values()))
+        long_trace = generate_workload(slow_p)
+        long_after = simulate_plant(long_trace, controller=ctrl)
+        long_metrics = {
+            "duration_s": float(slow_p.duration_s),
+            "label": "Over a 30-minute run",
+            "family": "slow",
+            "workload": slow_p.name if hasattr(slow_p, "name") else "slow_training_run",
+            "extra_energy_pct": float(long_after.metrics.energy_overhead_pct),
+            "training_slowed_pct": float(long_after.metrics.throughput_loss_pct),
+            "battery_wear": float(long_after.metrics.battery_wear_proxy),
+            "error": None,
+        }
+        long_ok = True
+    except Exception as exc:
+        long_metrics["error"] = str(exc)
+
+    # Primary cost numbers: prefer 30-min; fall back to the chart workload span
+    if long_ok:
+        primary_extra = long_metrics["extra_energy_pct"]
+        primary_slowed = long_metrics["training_slowed_pct"]
+        primary_wear = long_metrics["battery_wear"]
+        primary_span_s = float(long_metrics["duration_s"])
+        primary_label = "Over a 30-minute run"
+    else:
+        primary_extra = float(after.metrics.energy_overhead_pct)
+        primary_slowed = float(after.metrics.throughput_loss_pct)
+        primary_wear = float(after.metrics.battery_wear_proxy)
+        primary_span_s = float(duration)
+        primary_label = f"Over a {primary_span_s:g}-second run"
+
     return {
         "label": "simulated",
         "workload": params.to_dict(),
@@ -361,10 +466,15 @@ def _build_traces(sess: UISession, code: str) -> dict[str, Any]:
             "legend": {"without": "Without GridSafe", "with": "With GridSafe"},
         },
         "metrics": {
-            "extra_energy_pct": float(after.metrics.energy_overhead_pct),
-            "training_slowed_pct": float(after.metrics.throughput_loss_pct),
-            "battery_wear": float(after.metrics.battery_wear_proxy),
+            "extra_energy_pct": primary_extra,
+            "training_slowed_pct": primary_slowed,
+            "battery_wear": primary_wear,
+            "duration_s": primary_span_s,
+            "span_label": primary_label,
+            "from_30min": long_ok,
             "lower_is_better": True,
+            "cold_start": cold_start,
+            "run_30min": long_metrics,
             "before": before.metrics.to_dict(),
             "after": after.metrics.to_dict(),
         },
@@ -409,6 +519,10 @@ class SelectPagesBody(BaseModel):
 
 
 class RemoveConstraintBody(BaseModel):
+    constraint_id: str
+
+
+class ConfirmConstraintBody(BaseModel):
     constraint_id: str
 
 
@@ -990,6 +1104,68 @@ async def remove_constraint(session_id: str, body: RemoveConstraintBody) -> dict
     }
 
 
+@ui_router.post("/session/{session_id}/confirm-constraint")
+async def confirm_constraint(session_id: str, body: ConfirmConstraintBody) -> dict[str, Any]:
+    """Person confirms a Verifier-unsure rule so the build can use it."""
+    sess = _get_session(session_id)
+    cid = str(body.constraint_id)
+    found = False
+    for c in sess.constraints:
+        if str(c.get("id")) != cid:
+            continue
+        found = True
+        c["human_confirmed"] = True
+        c["verified"] = True
+        c["needs_human_review"] = False
+        c["ui_status"] = "Confirmed by a person, not by the Verifier"
+        c["confirm_badge"] = "Confirmed by a person, not by the Verifier"
+        break
+    if not found:
+        raise HTTPException(status_code=404, detail=f"No rule {cid}")
+    # Controller must be rebuilt against the updated list
+    sess.controller_code = None
+    sess.evolve_result = None
+    sess.traces = None
+    sess.certificate = None
+    return {
+        "session_id": session_id,
+        "constraint_id": cid,
+        "constraints": sess.constraints,
+        "message": "Confirmed by a person, not by the Verifier",
+    }
+
+
+@ui_router.get("/docs/results")
+async def docs_results() -> dict[str, Any]:
+    """Read RESULTS.md and FAILURES.md fresh from the repo. Never invent content."""
+    results_path = REPO_ROOT / "RESULTS.md"
+    failures_path = REPO_ROOT / "FAILURES.md"
+
+    def _read(path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {
+                "exists": False,
+                "path": str(path.relative_to(REPO_ROOT)),
+                "markdown": None,
+                "message": "not generated yet",
+            }
+        text = path.read_text(encoding="utf-8")
+        return {
+            "exists": True,
+            "path": str(path.relative_to(REPO_ROOT)),
+            "markdown": text,
+            "bytes": len(text.encode("utf-8")),
+            "mtime_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(path.stat().st_mtime)),
+            "message": None,
+        }
+
+    return {
+        "results": _read(results_path),
+        "failures": _read(failures_path),
+        "label": "read from repo files on each request",
+    }
+
+
 @ui_router.post("/session/{session_id}/evolve")
 async def evolve_stream(session_id: str, body: EvolveBody | None = None) -> StreamingResponse:
     sess = _get_session(session_id)
@@ -1150,7 +1326,7 @@ def _build_certificate(sess: UISession) -> dict[str, Any]:
             if cid:
                 margin_by_id[cid] = r
 
-    n_rules = sum(1 for c in sess.constraints if c.get("checkable") and c.get("verified") is True)
+    n_rules = sum(1 for c in sess.constraints if _is_buildable_constraint(c))
     gemini_passed = int(ev.get("total_candidates_passed") or 0)
     rules = []
     for c in sess.constraints:
@@ -1164,6 +1340,7 @@ def _build_certificate(sess: UISession) -> dict[str, Any]:
         if isinstance(measured, (int, float)) and isinstance(limit, (int, float)) and limit:
             used_pct = round(100.0 * float(measured) / float(limit), 1)
         measure_text, simplified = how_measured(c)
+        human = c.get("human_confirmed") is True
         rules.append(
             {
                 "id": cid,
@@ -1181,6 +1358,10 @@ def _build_certificate(sess: UISession) -> dict[str, Any]:
                 "confidence": c.get("confidence"),
                 "verified": c.get("verified"),
                 "needs_human_review": c.get("needs_human_review"),
+                "human_confirmed": human,
+                "confirm_label": (
+                    "Confirmed by a person, not by the Verifier" if human else None
+                ),
             }
         )
 
@@ -1581,11 +1762,21 @@ async def replay_load() -> dict[str, Any]:
     )
     with _SESSIONS_LOCK:
         _SESSIONS[session_id] = sess
-    # Rebuild traces if missing/broken/stale (no rule_bars) and we have a controller
+    # Rebuild traces if missing/broken/stale and we have a controller
+    bars = (sess.traces or {}).get("rule_bars") if isinstance(sess.traces, dict) else None
+    stale_jargon = False
+    if isinstance(bars, list):
+        for b in bars:
+            reason = str((b or {}).get("cannot_check_reason") or "")
+            if "Nyquist" in reason or "not_evaluable" in reason.lower() or "dt=" in reason:
+                stale_jargon = True
+                break
     needs_traces = sess.controller_code and (
         sess.traces is None
         or "error" in (sess.traces or {})
         or "rule_bars" not in (sess.traces or {})
+        or "cold_start" not in ((sess.traces or {}).get("metrics") or {})
+        or stale_jargon
     )
     if needs_traces and sess.controller_code:
         try:

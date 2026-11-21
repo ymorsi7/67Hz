@@ -1,63 +1,64 @@
 # GridSafe Agent Handoff
 
-Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (public repo `ymorsi7/67Hz`, MIT). Read `SPEC.md`, `docs/API_NOTES.md`, and `FAILURES.md` alongside this file.
+Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (`ymorsi7/67Hz`, MIT). Also read `SPEC.md`, `docs/API_NOTES.md`, `FAILURES.md`, `RESULTS.md`.
 
-## 1. Hard Rules & User Workflow (Non-Negotiable)
-- **User makes ALL commits and pushes (`AGENTS.md`):** NEVER run `git commit` or `git push`. End every completed phase with a commit message for the user.
-- **Never invent results or gold labels.** Never write `eval/gold/*.json` as an agent.
-- **Never leak secrets into sandboxes.** No `GEMINI_API_KEY` in evolve runners or Antigravity sandboxes.
-- **Sandbox package boundary:** `workload/`, `sim/`, `rules/`, `controllers/`, `evolve/` = pure Python + numpy only.
-- **Held-out profiles** run only in `make eval-final`.
-- **Do not edit** `frontend/`, `server/ui_api.py`, or `server/ui_dev.py` while the parallel UI agent owns them (unless that ownership ends).
+## Hard rules
+- **User commits/pushes** (`AGENTS.md`). Never `git commit` / `git push`; leave a commit message.
+- Never invent results or write `eval/gold/*.json`. Numbers only from saved runs.
+- No `GEMINI_API_KEY` in sandboxes. `workload/` `sim/` `rules/` `controllers/` `evolve/` = pure Python + numpy only.
+- Held-out profiles only in `make eval-final`. Prefer profile **`lipa_pseg`** (native LIPA aggregations); **`lipa`** is CAISO-straw peak_bin.
 
-## 2. Phase Status
-- **Phases 0–4 + 4b:** Done (band aggregations, LIPA `lipa_pseg`, agent API, UI mount).
-- **Phase 7 wrap-up (this turn):** Final evidence + demo safety — **done**.
-  - `make eval-final SEED=20261121`: **42.32 s** (`eval/results/eval_final_timing.json`).
-  - B2 stock Antigravity: **11/11 profiles in 296.6 s** (8‑min budget); host-scored **0 passes** (`eval/results/b2_budget_20261121.json`).
-  - Extraction re-score vs 6 gold: P=0.679 R=1.000 H=0.321 A=0.034.
-  - `make eval-live`, `make report` → `RESULTS.md`, `docs/NUMBERS.md`, README rebuilt.
-  - Hardening: **timeouts yes** (14 attack files with `APITimeoutError`); pause/resume added (`make harden-pause` / `make harden-resume`, flag `eval/attacks/HARDEN_PAUSE`, state `eval/attacks/hardening_state.json`).
-  - `make demo` (no reload), `make demo-check` **passed**; clean LIPA replay at `eval/tmp/replays/latest.json`.
-- **Still UI-agent side:** Phase 5–6 polish / Break-the-grid UX if not finished.
+## Status (Phases 0–7 + evidence check + acceptance gate)
+**Built.** Physics/checker (incl. band aggregations + `band_long`), Reader/Verifier, evolve + B0/B1/B3, managed agents, UI mount, final eval docs, demo safety.
 
-### Headline unflattering facts (quote from RESULTS.md)
-- GridSafe presets **33/33** — **same as no-AI B3 33/33**.
-- B2 run1 **0/11** was mostly harness (thin prompt ≠ B0); fair run2 **6/10** (all remaining fails = rule breaks; `lipa` skipped for budget).
-- Hardener holdout SEED=4242: `lipa` **19→13/20** (hurt); `lipa_pseg` **18→20/20** (helped).
-- Hardening: **19** rounds, **20** timeouts, **2** breaks, **2** fixes — most turns timed out.
+**Do not edit** `frontend/`, `server/ui_api.py`, `server/ui_dev.py` if the UI agent still owns them.
 
-## 3. Repo Map (Phase 7 wrap-up additions)
-- `Makefile` — `eval-live`, `report`, `demo`, `b2-budget`, `harden-pause`, `harden-resume`
-- `scripts/build_final_results.py` — writes `eval/results/final_<seed>.json`
-- `scripts/report.py` — writes `RESULTS.md` from saved JSON only
-- `scripts/eval_live.py` — judge-picked seed, <60 s pass table
-- `scripts/run_b2_budget.py` — B2 within wall-clock budget
-- `agents/harden.py` — pause flag + resume state
-- `docs/NUMBERS.md` — 12 quoteable numbers with provenance
-- `eval/results/` — final / B2 / live / timing artifacts
+### Backend frozen after this change
+| Item | What | Key artifact |
+| --- | --- | --- |
+| **Fix acceptance gate** | Accept fix only if (a) CX passes, (b) every preset passes, (c) validation Rand20 **SEED=9001** ≥ current. Reject → keep current + open issue | `agents/verify.py::gate_fix`, `AgentBridge.accept_fix`, `server/agent_api.py`, `agents/harden.py` |
+| Hardener timeouts | Background `interactions.create` + poll; SSE heartbeat `still working, N seconds`; red-team skill **45 s** CX deadline | `agents/bridge.py`, `.agents/skills/red-team/SKILL.md` |
+| Gated harden re-score | `lipa` / `lipa_pseg` under gate; holdout **SEED=31337** | `eval/results/harden_fix_31337.json` (ungated 4242 kept) |
+| `make eval-final SEED=20261121` | Presets + random suite + extraction; **42.32 s** | `eval/results/eval_final_timing.json`, summary in `eval/results/final_20261121.json` |
+| Controllers cache | 3-seed Noop/B1/B0/B3/GridSafe | `eval/cache/phase3_results.json` |
+| `make eval-live SEED=<n>` | Cached controllers × 20 fresh workloads; ~42 s @ 20261121 | `eval/results/eval_live_<seed>.json` |
+| Report pipeline | `scripts/build_final_results.py` + `scripts/report.py` | `make report` → `RESULTS.md` + `docs/NUMBERS.md` |
+| `make demo` / `demo-check` | Port 8000, **no** reload; key/models/Decisions/agents/replay/UI | `eval/tmp/replays/latest.json` (gitignored) |
+| Harden pause/resume | Flag + state; auto-pause on timeout | `make harden-pause` / `harden-resume`; `eval/attacks/HARDEN_PAUSE`, `hardening_state.json` |
 
-## 4. Agent API for the UI (`server/agent_api.py`, mounted from `server/app.py`)
+### Evidence check done
+| Item | Result | File |
+| --- | --- | --- |
+| B2 run1 (thin prompt) | **0/11** — mostly harness (`getattr`/`hasattr`/NameError) | `eval/results/b2_budget_20261121_run1_harness.json`, `b2_failure_analysis_run1.json` |
+| B2 run2 (B0-aligned prompt, still no skills/hooks/checker) | **6/10** pass; 4 rule-breaks; `lipa` skipped (budget) | `eval/results/b2_budget_20261121_run2_fair_prompt.json` |
+| Hardener ungated | `lipa` 19→13/20 @4242 (**hurt**); `lipa_pseg` 18→20/20 (**helped**) | `eval/results/harden_fix_4242.json` |
+| Hardener gated | Both gate-rejected (`counterexample_still_breaks`); current kept; holdout @31337 unchanged (`lipa` 20→20, `lipa_pseg` 19→19); rejected lipa candidate would have been **18/20** | `eval/results/harden_fix_31337.json` |
+| Background harden tally | 19 rounds, **20 timeouts**, 2 breaks, 2 fixes (pre-background-poll era) | `eval/attacks/hardening_tally.jsonl`, `eval/attacks/harden_*.json` |
+| Extraction FPs | 9 total: **1** invented/wrong-type (IESO 600 MW load-loss as `max_step`), **8** quotes/dupes | `eval/results/fp_breakdown.json`; FAILURES F17 |
 
-Unchanged from Phase 4b. `make run` / `make demo` serve UI + agents on one port. Never invents agent messages.
+**Quote carefully:** GridSafe presets **33/33** = B3 **33/33**. Random all-pass GridSafe **9/11** vs B0 **11/11**. Do **not** quote B2 as 0/11 without saying run1 was harness-biased. Do **not** claim ungated hardener always helps — `lipa` @4242 regressed.
 
-### Key endpoints
-- `POST /api/agents/harden` (SSE) — engineer↔hardener bridge
-- `GET /api/agents/tally` — hardening counters
-- `GET /api/agents/threads` / `.../{id}` — logged threads
+## Result file map (`eval/results/`)
+- `final_20261121.json` — Wilson pass rates, family cost, degradation, hardening summary
+- `eval_final_timing.json`, `eval_live_20261121.json`
+- `b2_budget_20261121_run{1_harness,2_fair_prompt}.json` (+ analysis JSONs)
+- `harden_fix_4242.json` (ungated), `harden_fix_31337.json` (gated), `fp_breakdown.json`
+- Also: `eval/cache/phase3_results.json`, `eval/cache/extractions/`, `eval/gold/`, `eval/agent_threads/`, `RESULTS.md`, `docs/NUMBERS.md`
+- Open rejected fixes: `eval/attacks/open_issues.jsonl`
 
-## 5. Common Commands
-- `make test` / `make eval` / `make eval-final SEED=20261121`
-- `make eval-live SEED=<n>` — fresh 20-workload table from cached controllers
-- `make report` — regenerate `RESULTS.md`
-- `make demo` — build UI, serve port 8000 **without** reload
-- `make demo-check` — key, models, Decisions API, both agents, replay, UI build
-- `make harden` / `make harden-pause` / `make harden-resume`
-- `make b2-budget` — stock Antigravity baseline under 8 minutes
+## Agent bridge & `server/agent_api.py`
+- **Bridge:** `agents/bridge.py` — host `message_agent`; no subagent nesting; checker re-checks every claim; **`accept_fix` gate** (CX + presets + SEED=9001); hardener turns use **background=True + poll** with heartbeats; threads → `eval/agent_threads/`.
+- **Agents:** `gridsafe-engineer` (Hydrogen) / `gridsafe-hardener` (Carbon); provision `agents/provision.py`.
+- **Mounted** from `server/app.py` with UI router. `make demo` / `make run` = one port.
+- **API:** `POST /api/agents/harden` (SSE: status incl. `still working, N seconds`, agent_message, backend_check, verdict; reject stream: `fix rejected: it made things worse on N other workloads`); `GET /api/agents/tally`; `GET /api/agents/threads[/{id}]`.
 
-## 6. Gotchas
-- Prefer native profile id **`lipa_pseg`** for Table 4-2 aggregations; **`lipa`** is still the CAISO-straw restatement (peak_bin).
-- `band_long` Nyquist is 50 Hz — enough for 0.1–5 Hz; 5–55 Hz is only partially covered there (fast family still carries high band).
-- Hardener turns often hit **90 s `APITimeoutError`**; host falls back to Rand20; pause with `HARDEN_PAUSE` rather than hammering the API.
-- `make eval-final` now also runs `build_final_results.py` (random-suite re-score ~40 s extra).
-- Do not touch `frontend/` / `server/ui_api.py` / `server/ui_dev.py` if the UI agent is still active.
+## Commands
+`make test` · `make eval` · `make eval-final SEED=20261121` · `make eval-live SEED=<n>` · `make report` · `make demo` · `make demo-check` · `make b2-budget` · `make harden` / `harden-pause` / `harden-resume` · `make agent-job PROFILE=lipa_pseg` · `python scripts/run_harden_fix_eval.py` (gated, SEED=31337)
+
+## Open issues
+1. **UI / Break-the-grid (Phases 5–6):** polish may still be on the UI agent; don’t touch their files unless ownership ends.
+2. **`lipa` vs `lipa_pseg`:** straw profile still in eval; demo/native claims should use `lipa_pseg`.
+3. **Hardener holdout mixed (ungated):** `lipa` hurt @4242; gated path now keeps current on reject (F16).
+4. **IESO 600 MW typed as `max_step`:** Verifier confirms value-on-page, not rule kind (F17).
+5. **B2 incomplete fair suite:** run2 skipped `lipa` (8‑min budget); re-run with higher budget if quoting all 11.
+6. **`eval/tmp/` gitignored:** replay/demo assets are local-only; `make demo-check` needs a replay present on the laptop.

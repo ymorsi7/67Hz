@@ -11,6 +11,8 @@ Prefer:
 - abrupt job start / checkpoint / stop edges for ramp and step rules
 - idle-to-full cold starts that stress slew limits
 
+**Hard deadline: return your best counterexample JSON within 45 seconds.** Prefer a short, host-checkable workload guess over a long sandbox simulation. At most one short numpy probe (<2 s). If unsure, return `no_break_within_budget` with your best attempt in `notes` rather than running past 45 s.
+
 Return structured JSON only:
 ```json
 {

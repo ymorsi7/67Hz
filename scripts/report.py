@@ -114,7 +114,9 @@ def main() -> int:
     if not b2_run2.exists():
         b2_run2 = RESULTS / "b2_budget_20261121.json"
     b2_analysis = _load(RESULTS / "b2_failure_analysis_run1.json")
-    harden_fix = _load(RESULTS / "harden_fix_4242.json")
+    harden_fix_ungated = _load(RESULTS / "harden_fix_4242.json")
+    harden_fix_gated = _load(RESULTS / "harden_fix_31337.json")
+    harden_fix = harden_fix_ungated  # legacy alias for summary bits that still key on 4242
     fps = _load(RESULTS / "fp_breakdown.json")
 
     ms = data["method_summary"]
@@ -284,14 +286,24 @@ def main() -> int:
     lines.append("## Before and after the hardener agents")
     lines.append("")
     lines.append(
-        "One engineer↔hardener break-and-fix cycle on the cached GridSafe controllers for `lipa` and `lipa_pseg`. "
-        "SEED=20261121 is the suite those controllers already touched; **SEED=4242 is held-out** for this fix."
+        "Engineer↔hardener break-and-fix cycles on cached GridSafe controllers for `lipa` and `lipa_pseg`. "
+        "Every run kept: **ungated** (accepted any evolve that cleared the CX) and **gated** "
+        "(accept only if CX + every preset + validation SEED=9001 ≥ current)."
     )
     lines.append("")
-    if harden_fix:
+
+    # --- Ungated (historical, SEED=4242) ---
+    lines.append("### Ungated (historical) — holdout SEED=4242")
+    lines.append("")
+    lines.append(
+        "SEED=20261121 is the suite those controllers already touched; **SEED=4242** was never used before this fix. "
+        "No validation gate: a fix that cleared the counterexample could still regress on unseen workloads."
+    )
+    lines.append("")
+    if harden_fix_ungated:
         lines.append("| Profile | Seed | Label | Before | After | Break found | Fix confirmed |")
         lines.append("| --- | ---: | --- | --- | --- | --- | --- |")
-        for row in harden_fix.get("profiles") or []:
+        for row in harden_fix_ungated.get("profiles") or []:
             pid = row["profile_id"]
             for seed_key, label in (
                 ("seed_20261121", "seen (20261121)"),
@@ -309,16 +321,78 @@ def main() -> int:
                 )
         lines.append("")
         lines.append(f"Source: `{RESULTS.relative_to(REPO_ROOT)}/harden_fix_4242.json`.")
-        # Plain verdict
         helped = []
-        for row in harden_fix.get("profiles") or []:
+        for row in harden_fix_ungated.get("profiles") or []:
             b = row["before"]["seed_4242"]
             a = row["after"]["seed_4242"]
             delta = a["workloads_passed"] - b["workloads_passed"]
-            helped.append(f"`{row['profile_id']}` Δ={delta:+d} on SEED=4242 ({b['workloads_passed']}→{a['workloads_passed']})")
+            helped.append(
+                f"`{row['profile_id']}` Δ={delta:+d} on SEED=4242 "
+                f"({b['workloads_passed']}→{a['workloads_passed']})"
+            )
         lines.append("- Holdout deltas: " + "; ".join(helped) + ".")
+        lines.append(
+            "- **`lipa` regression:** ungated fix made the controller worse on holdout "
+            "(19→13/20 @4242); this motivated the acceptance gate."
+        )
     else:
         lines.append("_`eval/results/harden_fix_4242.json` not present yet._")
+    lines.append("")
+
+    # --- Gated (SEED=31337) ---
+    lines.append("### Gated — holdout SEED=31337 (never used before)")
+    lines.append("")
+    lines.append(
+        "Same profiles under the acceptance gate. Validation SEED=9001 is used **only** for the gate "
+        "(not reported as holdout). Rejected fixes keep the current controller; the counterexample is "
+        "logged as an open issue."
+    )
+    lines.append("")
+    if harden_fix_gated:
+        lines.append(
+            "| Profile | Seed | Label | Before | After | Break found | Gate accepted | Gate reason |"
+        )
+        lines.append("| --- | ---: | --- | --- | --- | --- | --- | --- |")
+        for row in harden_fix_gated.get("profiles") or []:
+            pid = row["profile_id"]
+            hold_key = f"seed_{harden_fix_gated.get('holdout_seed', 31337)}"
+            seen_key = f"seed_{harden_fix_gated.get('seen_seed', 20261121)}"
+            for seed_key, label in (
+                (seen_key, f"seen ({harden_fix_gated.get('seen_seed', 20261121)})"),
+                (hold_key, f"never-used ({harden_fix_gated.get('holdout_seed', 31337)})"),
+            ):
+                b = row["before"][seed_key]
+                a = row["after"][seed_key]
+                g = row.get("gate") or {}
+                lines.append(
+                    f"| `{pid}` | {b['seed']} | {label} | "
+                    f"{b['workloads_passed']}/{b['workloads_evaluable']} "
+                    f"{'PASS' if b['passed'] else 'FAIL'} | "
+                    f"{a['workloads_passed']}/{a['workloads_evaluable']} "
+                    f"{'PASS' if a['passed'] else 'FAIL'} | "
+                    f"{row.get('break_found')} | {g.get('accepted')} | {g.get('reason')} |"
+                )
+        lines.append("")
+        lines.append(f"Source: `{RESULTS.relative_to(REPO_ROOT)}/harden_fix_31337.json`.")
+        helped = []
+        hold_key = f"seed_{harden_fix_gated.get('holdout_seed', 31337)}"
+        for row in harden_fix_gated.get("profiles") or []:
+            b = row["before"][hold_key]
+            a = row["after"][hold_key]
+            delta = a["workloads_passed"] - b["workloads_passed"]
+            g = row.get("gate") or {}
+            bit = (
+                f"`{row['profile_id']}` Δ={delta:+d} on SEED={harden_fix_gated.get('holdout_seed', 31337)} "
+                f"({b['workloads_passed']}→{a['workloads_passed']}; gate={g.get('accepted')}"
+            )
+            if row.get("rejected_candidate_holdout"):
+                rc = row["rejected_candidate_holdout"]
+                bit += f"; rejected candidate would have been {rc['workloads_passed']}/{rc['workloads_evaluable']}"
+            bit += ")"
+            helped.append(bit)
+        lines.append("- Holdout deltas: " + "; ".join(helped) + ".")
+    else:
+        lines.append("_`eval/results/harden_fix_31337.json` not present yet._")
     lines.append("")
 
     lines.append("## Simulator limits")
@@ -359,13 +433,25 @@ def main() -> int:
         f"5. Hardening: {cycles_completed} rounds completed, {timeouts} timeouts, {breaks} breaks, {fixes} fixes — "
         f"{'most rounds timed out' if timeouts >= max(1, cycles_attempted // 2) else 'timeouts present'}."
     )
-    if harden_fix:
-        bits = []
-        for row in harden_fix.get("profiles") or []:
+    bits = []
+    if harden_fix_ungated:
+        for row in harden_fix_ungated.get("profiles") or []:
             b = row["before"]["seed_4242"]
             a = row["after"]["seed_4242"]
-            bits.append(f"{row['profile_id']} {b['workloads_passed']}→{a['workloads_passed']}/20 @4242")
-        lines.append("6. Hardener fix holdout (SEED=4242): " + "; ".join(bits) + ".")
+            bits.append(f"{row['profile_id']} {b['workloads_passed']}→{a['workloads_passed']}/20 @4242 ungated")
+    if harden_fix_gated:
+        hold = harden_fix_gated.get("holdout_seed", 31337)
+        hk = f"seed_{hold}"
+        for row in harden_fix_gated.get("profiles") or []:
+            b = row["before"][hk]
+            a = row["after"][hk]
+            g = row.get("gate") or {}
+            bits.append(
+                f"{row['profile_id']} {b['workloads_passed']}→{a['workloads_passed']}/20 @{hold} "
+                f"gated({g.get('accepted')})"
+            )
+    if bits:
+        lines.append("6. Hardener fix holdouts: " + "; ".join(bits) + ".")
     else:
         lines.append("6. Hardener before/after holdout file not present when this report was generated.")
     lines.append("")
@@ -392,7 +478,7 @@ Every value comes from a saved run file. Command shown is how to regenerate or r
 | 9 | **B2 run1 0/{(_load(b2_run1) or {}).get('profiles_completed_ok', 11)}** (mostly harness) | Thin-prompt B2 | `eval/results/b2_budget_20261121_run1_harness.json` | archived run |
 | 10 | **B2 run2 {b2r2.get('profiles_passed')}/{b2r2.get('profiles_completed_ok')}** in {b2r2.get('elapsed_s')} s | Fair-prompt B2 | `eval/results/b2_budget_20261121_run2_fair_prompt.json` | `make b2-budget` |
 | 11 | **{breaks} breaks / {fixes} fixes · {timeouts} timeouts / {cycles_completed} rounds** | Hardening tally | `eval/attacks/hardening_tally.jsonl` | `make harden` |
-| 12 | **SEED=4242 before→after** (see RESULTS) | Hardener holdout | `eval/results/harden_fix_4242.json` | `python scripts/run_harden_fix_eval.py` |
+| 12 | **SEED=4242 ungated + SEED=31337 gated** (see RESULTS) | Hardener holdouts | `eval/results/harden_fix_4242.json`, `harden_fix_31337.json` | `python scripts/run_harden_fix_eval.py` |
 
 See also `RESULTS.md` § “Before and after the hardener agents” and § “B2 stock Antigravity”.
 """

@@ -243,6 +243,21 @@ def _run_harden_round(
         event_q.put(None)
         return
 
+    def _on_bridge_event(payload: dict[str, Any]) -> None:
+        if payload.get("event") == "heartbeat":
+            secs = int(payload.get("elapsed_s") or 0)
+            event_q.put(
+                (
+                    "status",
+                    {
+                        "ok": True,
+                        "message": payload.get("message") or f"still working, {secs} seconds",
+                        "elapsed_s": secs,
+                        "heartbeat": True,
+                    },
+                )
+            )
+
     bridge = AgentBridge(
         thread_id,
         meta={
@@ -250,6 +265,7 @@ def _run_harden_round(
             "profile_id": req.profile_id,
             "rated_mw": req.rated_mw,
         },
+        on_event=_on_bridge_event,
         use_saved_agents=True,
     )
 
@@ -489,42 +505,72 @@ def _run_harden_round(
         )
     )
 
-    fixed = evo.best_code or req.controller_code
+    candidate = evo.best_code or req.controller_code
     cx_list = []
     for b in check.get("verified_breaks") or []:
         if b.get("claimed"):
             cx_list.append(b["claimed"])
     if not cx_list and cxs:
         cx_list = cxs
-    recheck = recheck_counterexamples(fixed, ruleset, cx_list, rated_mw=req.rated_mw) if cx_list else {"break_found": False}
-    still_breaks = bool(recheck.get("break_found"))
+
+    gate: dict[str, Any] | None = None
+    if evo.passed and evo.best_code:
+        gate = bridge.accept_fix(
+            req.controller_code,
+            candidate,
+            ruleset,
+            cx_list,
+            rated_mw=req.rated_mw,
+            profile_id=req.profile_id,
+        )
+
+    accepted = bool(gate and gate.get("accepted"))
+    still_breaks = bool(
+        ((gate or {}).get("checks") or {}).get("counterexamples", {}).get("break_found")
+    ) if gate else True
+    if gate and gate.get("reason") == "validation_regression":
+        fix_summary = gate.get("message") or (
+            f"fix rejected: it made things worse on {gate.get('worse_on_n', '?')} other workloads"
+        )
+    elif accepted:
+        fix_summary = "Backend confirms the fix: CX clear, presets pass, validation SEED=9001 non-regressing."
+    elif gate:
+        fix_summary = gate.get("message") or "Backend rejected the fix; keeping the current controller."
+    else:
+        fix_summary = "Backend could not confirm a fix: evolve did not pass."
+
     event_q.put(
         (
             "backend_check",
             {
                 "kind": "fix",
-                "passed": bool(evo.passed) and not still_breaks,
-                "summary": (
-                    "Backend confirms the fix: prior break workloads now pass."
-                    if (evo.passed and not still_breaks)
-                    else "Backend could not confirm a fix: break still fails or evolve did not pass."
-                ),
+                "passed": accepted,
+                "summary": fix_summary,
                 "detail": {
                     "evolve_outcome": evo.outcome,
                     "evolve_passed": evo.passed,
                     "counterexamples_still_break": still_breaks,
-                    "recheck": recheck,
+                    "gate": gate,
+                    "kept_current_controller": not accepted,
                 },
             },
         )
     )
+    if gate and not accepted and gate.get("message"):
+        event_q.put(("status", {"ok": False, "message": gate["message"], "fix_rejected": True}))
 
-    if evo.passed and not still_breaks:
+    if accepted:
         verdict = "break_found_and_fixed"
-        message = "Break found and fixed; backend confirmed the prior counterexamples now pass."
+        message = "Break found and fixed; backend gate accepted (CX + presets + validation SEED=9001)."
+        fixed_out = candidate
     else:
         verdict = "break_found_not_fixed"
-        message = "Break found, but the fix was not confirmed by the backend checker."
+        message = (
+            gate.get("message")
+            if gate and gate.get("message")
+            else "Break found, but the fix was rejected or not confirmed; current controller kept."
+        )
+        fixed_out = None
     event_q.put(
         (
             "verdict",
@@ -532,8 +578,9 @@ def _run_harden_round(
                 "verdict": verdict,
                 "message": message,
                 "thread_id": thread_id,
-                "fixed_controller_code": fixed if verdict == "break_found_and_fixed" else None,
+                "fixed_controller_code": fixed_out,
                 "outcome": evo.outcome,
+                "gate_accepted": accepted,
             },
         )
     )

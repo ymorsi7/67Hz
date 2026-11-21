@@ -1,0 +1,7 @@
+{
+  "thread_id": "harden_fix_gated_lipa_20261121T191921Z",
+  "created_at_utc": "2026-11-21T19:19:21.640593+00:00",
+  "kind": "harden_fix_eval_gated",
+  "profile_id": "lipa",
+  "holdout_seed": 31337
+}

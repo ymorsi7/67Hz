@@ -28,6 +28,9 @@ export function plainRule(c: ConstraintRow): string {
 
 export function confirmBadge(c: ConstraintRow): { tone: "ok" | "warn" | "muted"; label: string } {
   if (!c.checkable) return { tone: "muted", label: "Cannot simulate" }
+  if (c.human_confirmed) {
+    return { tone: "ok", label: "Confirmed by a person, not by the Verifier" }
+  }
   const conf = typeof c.confidence === "number" ? Math.round(c.confidence * 100) : null
   if (c.verified === true && !c.needs_human_review) {
     return {

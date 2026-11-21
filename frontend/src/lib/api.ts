@@ -27,6 +27,8 @@ export interface ConstraintRow {
   source_section?: string
   notes?: string
   source_label?: string
+  human_confirmed?: boolean
+  confirm_badge?: string
 }
 
 export interface UploadResponse {
@@ -100,6 +102,23 @@ export async function removeConstraint(sessionId: string, constraintId: string) 
       body: JSON.stringify({ constraint_id: constraintId }),
     }),
   )
+}
+
+export async function confirmConstraint(sessionId: string, constraintId: string) {
+  return parseJson<{ constraints: ConstraintRow[]; message: string }>(
+    await fetch(`/api/ui/session/${sessionId}/confirm-constraint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ constraint_id: constraintId }),
+    }),
+  )
+}
+
+export async function fetchDocsResults() {
+  return parseJson<{
+    results: { exists: boolean; markdown: string | null; message: string | null; mtime_utc?: string }
+    failures: { exists: boolean; markdown: string | null; message: string | null; mtime_utc?: string }
+  }>(await fetch("/api/ui/docs/results"))
 }
 
 export async function fetchAgentTally() {

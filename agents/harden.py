@@ -222,24 +222,53 @@ def run_hardening_loop(
                 seed_code=code,
                 enable_b3_seed=True,
             )
+            cxs = []
+            for b in check.get("verified_breaks") or []:
+                claimed = b.get("claimed") or {}
+                if claimed.get("workload"):
+                    cxs.append(claimed)
             if evo2.passed and evo2.best_code:
-                fixes_applied += 1
-                # Re-eval on the claimed breaks if present
-                cxs = []
-                for b in check.get("verified_breaks") or []:
-                    claimed = b.get("claimed") or {}
-                    if claimed.get("workload"):
-                        cxs.append(claimed)
-                recheck = None
-                if cxs:
-                    recheck = recheck_counterexamples(evo2.best_code, prof.ruleset, cxs)
-                row["fix"] = {
-                    "outcome": evo2.outcome,
-                    "passed": evo2.passed,
-                    "recheck_breaks_still_fail": (recheck or {}).get("break_found"),
-                }
+                # Acceptance gate: CX + presets + validation SEED=9001 (>= current).
+                # Rejected fixes keep the current controller and log an open issue.
+                gate = bridge.accept_fix(
+                    code,
+                    evo2.best_code,
+                    prof.ruleset,
+                    cxs,
+                    rated_mw=float(prof.ruleset.rated_mw),
+                    profile_id=pid,
+                )
+                if gate.get("accepted"):
+                    fixes_applied += 1
+                    row["fix"] = {
+                        "outcome": evo2.outcome,
+                        "passed": True,
+                        "accepted": True,
+                        "recheck_breaks_still_fail": False,
+                        "gate": {
+                            "reason": gate.get("reason"),
+                            "message": gate.get("message"),
+                            "validation": (gate.get("checks") or {}).get("validation"),
+                        },
+                    }
+                else:
+                    row["fix"] = {
+                        "outcome": evo2.outcome,
+                        "passed": False,
+                        "accepted": False,
+                        "kept_current_controller": True,
+                        "recheck_breaks_still_fail": (gate.get("checks") or {})
+                        .get("counterexamples", {})
+                        .get("break_found"),
+                        "gate": {
+                            "reason": gate.get("reason"),
+                            "message": gate.get("message"),
+                            "worse_on_n": gate.get("worse_on_n"),
+                            "validation": (gate.get("checks") or {}).get("validation"),
+                        },
+                    }
             else:
-                row["fix"] = {"outcome": evo2.outcome, "passed": False}
+                row["fix"] = {"outcome": evo2.outcome, "passed": False, "accepted": False}
 
         row["tally"] = {"cycles": cycle, "breaks_verified": breaks_verified, "fixes_applied": fixes_applied}
         # Auto-pause after timeouts / rate limits so the operator can resume later.

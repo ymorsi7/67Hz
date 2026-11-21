@@ -14,7 +14,7 @@ Every value comes from a saved run file. Command shown is how to regenerate or r
 | 8 | **1 invented/wrong · 8 quotes/dupes** | FP split | `eval/results/fp_breakdown.json` | same |
 | 9 | **B2 run1 0/11** (mostly harness) | Thin-prompt B2 | `eval/results/b2_budget_20261121_run1_harness.json` | archived run |
 | 10 | **B2 run2 6/10** in 455.997 s | Fair-prompt B2 | `eval/results/b2_budget_20261121_run2_fair_prompt.json` | `make b2-budget` |
-| 11 | **2 breaks / 2 fixes · 20 timeouts / 19 rounds** | Hardening tally | `eval/attacks/hardening_tally.jsonl` | `make harden` |
-| 12 | **SEED=4242 before→after** (see RESULTS) | Hardener holdout | `eval/results/harden_fix_4242.json` | `python scripts/run_harden_fix_eval.py` |
+| 11 | **5 breaks / 5 fixes · 26 timeouts / 26 rounds** | Hardening tally | `eval/attacks/hardening_tally.jsonl` | `make harden` |
+| 12 | **SEED=4242 ungated + SEED=31337 gated** (see RESULTS) | Hardener holdouts | `eval/results/harden_fix_4242.json`, `harden_fix_31337.json` | `python scripts/run_harden_fix_eval.py` |
 
 See also `RESULTS.md` § “Before and after the hardener agents” and § “B2 stock Antigravity”.

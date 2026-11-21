@@ -16,7 +16,12 @@ from typing import Any, Callable
 from agents.client import get_genai_client, load_managed_config
 from agents.thread_log import AgentThreadLogger
 from agents.tools import engineer_tools, hardener_tools
-from agents.verify import recheck_controller, recheck_counterexamples, ruleset_from_constraints
+from agents.verify import (
+    gate_fix,
+    recheck_counterexamples,
+    ruleset_from_constraints,
+)
+from rules.schema import RuleSet
 
 EventCallback = Callable[[dict[str, Any]], None]
 
@@ -118,6 +123,7 @@ class AgentBridge:
         environment: str | None,
         tools: list[dict[str, Any]] | None = None,
         timeout_s: float = 300.0,
+        background: bool = False,
     ) -> Any:
         kwargs = self._agent_kwargs(role)
         if tools is not None:
@@ -129,10 +135,95 @@ class AgentBridge:
         else:
             kwargs.setdefault("environment", "remote")
         kwargs["input"] = input_payload
+        if background:
+            kwargs["background"] = True
+            # Create returns quickly; HTTP timeout only covers the enqueue hop.
+            return self.client.interactions.create(timeout=min(60.0, timeout_s), **kwargs)
         return self.client.interactions.create(timeout=timeout_s, **kwargs)
 
+    def _poll_interaction(
+        self,
+        interaction: Any,
+        *,
+        role: str,
+        timeout_s: float,
+        poll_s: float = 2.0,
+        heartbeat_s: float = 5.0,
+    ) -> Any:
+        """Poll a background interaction until terminal / requires_action, emitting heartbeats."""
+        t0 = time.perf_counter()
+        last_hb = -heartbeat_s
+        while True:
+            elapsed = time.perf_counter() - t0
+            status = str(getattr(interaction, "status", "") or "")
+            if status in {"completed", "failed", "cancelled", "requires_action", "incomplete"}:
+                return interaction
+            if elapsed >= timeout_s:
+                raise TimeoutError(
+                    f"background {role} interaction {getattr(interaction, 'id', '?')} "
+                    f"still {status!r} after {timeout_s:.0f}s"
+                )
+            if elapsed - last_hb >= heartbeat_s:
+                secs = int(elapsed)
+                self._emit(
+                    "heartbeat",
+                    {
+                        "role": role,
+                        "elapsed_s": secs,
+                        "status": status,
+                        "message": f"still working, {secs} seconds",
+                        "interaction_id": getattr(interaction, "id", None),
+                    },
+                )
+                last_hb = elapsed
+            time.sleep(poll_s)
+            interaction = self.client.interactions.get(id=interaction.id, timeout=30.0)
+
+    def accept_fix(
+        self,
+        current_code: str,
+        candidate_code: str,
+        ruleset: RuleSet,
+        counterexamples: list[dict[str, Any]],
+        *,
+        rated_mw: float | None = None,
+        profile_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Bridge-level fix gate: accept only if CX + presets + validation SEED=9001 all clear."""
+        gate = gate_fix(
+            current_code,
+            candidate_code,
+            ruleset,
+            counterexamples,
+            rated_mw=rated_mw,
+            profile_id=profile_id,
+            log_open_issue=True,
+        )
+        self._emit(
+            "fix_gate",
+            {
+                "accepted": gate.get("accepted"),
+                "reason": gate.get("reason"),
+                "message": gate.get("message"),
+                "worse_on_n": gate.get("worse_on_n"),
+                "profile_id": profile_id,
+                "checks": {
+                    "presets": (gate.get("checks") or {}).get("presets"),
+                    "validation": (gate.get("checks") or {}).get("validation"),
+                    "counterexample_still_breaks": bool(
+                        ((gate.get("checks") or {}).get("counterexamples") or {}).get("break_found")
+                    ),
+                },
+            },
+        )
+        return gate
+
     def send_to_hardener(self, payload: dict[str, Any], *, timeout_s: float = 240.0) -> dict[str, Any]:
-        """Direct host-orchestrated message to hardener (also used by message_agent handler)."""
+        """Direct host-orchestrated message to hardener (also used by message_agent handler).
+
+        Uses background=True + polling so a slow Carbon turn is slow rather than a client
+        read-timeout failure. Heartbeats emit ``still working, N seconds``.
+        """
         self.round += 1
         t0 = time.perf_counter()
         # Strip oversized code from the on-wire prompt; keep a short head for the hardener.
@@ -146,6 +237,7 @@ class AgentBridge:
             "If type=submit_controller: propose up to 3 adversarial workload parameter dicts that "
             "are likely to break the controller against the given constraints. "
             "Prefer resonant periods (0.02-0.07 s for 15-50 Hz) and abrupt idle->full starts.\n"
+            "HARD DEADLINE: return your best counterexample JSON within 45 seconds. "
             "Do NOT run long multi-minute simulations in code_execution. "
             "At most one short numpy snippet (<2s). Reply JSON only:\n"
             '{"status":"break_found"|"no_break_within_budget","counterexamples":[{"workload":{...},'
@@ -156,6 +248,8 @@ class AgentBridge:
             "message_out",
             {"from": "gridsafe-engineer", "to": "gridsafe-hardener", "round": self.round, "payload_keys": list(payload.keys())},
         )
+        # Background create avoids client HTTP read timeouts; poll up to a generous wall budget.
+        poll_budget_s = max(float(timeout_s), 300.0)
         try:
             interaction = self._create(
                 "hardener",
@@ -163,9 +257,15 @@ class AgentBridge:
                 previous_id=self.hardener_prev_id,
                 environment=self.hardener_env,
                 tools=hardener_tools()[:2],
-                timeout_s=timeout_s,
+                timeout_s=60.0,
+                background=True,
             )
-            interaction = self._drain_host_tools(interaction, role="hardener", timeout_s=min(60.0, timeout_s))
+            interaction = self._poll_interaction(
+                interaction, role="hardener", timeout_s=poll_budget_s
+            )
+            interaction = self._drain_host_tools(
+                interaction, role="hardener", timeout_s=min(60.0, poll_budget_s)
+            )
             self.hardener_prev_id = interaction.id
             self.hardener_env = getattr(interaction, "environment_id", None) or self.hardener_env
             text = (interaction.output_text or "").strip()
@@ -181,12 +281,13 @@ class AgentBridge:
                 "status": getattr(interaction, "status", None),
                 "raw_text": text[:4000],
                 "reply": reply,
+                "background": True,
             }
         except Exception as exc:
             latency_s = time.perf_counter() - t0
             reply = {
                 "status": "no_break_within_budget",
-                "notes": "hardener timed out; host will verify independently",
+                "notes": "hardener timed out or failed; host will verify independently",
                 "counterexamples": [],
             }
             result = {
@@ -197,6 +298,7 @@ class AgentBridge:
                 "latency_s": round(latency_s, 3),
                 "error": f"{type(exc).__name__}: {exc}",
                 "reply": reply,
+                "background": True,
             }
         # Backend re-check if a controller + counterexamples are present
         if payload.get("controller_code") and payload.get("constraints") and isinstance(reply, dict):

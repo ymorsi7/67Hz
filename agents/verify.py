@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import json
+from pathlib import Path
 from typing import Any
 
 from evolve.sandbox import evaluate_controller_sandboxed
 from rules.schema import Constraint, RuleSet
-from workload.synth import WorkloadParams, generate_workload
+from workload.synth import WorkloadParams, all_preset_workloads, generate_workload
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OPEN_ISSUES_PATH = REPO_ROOT / "eval" / "attacks" / "open_issues.jsonl"
+# Validation random suite used only by the fix-acceptance gate (never as a holdout score seed).
+FIX_VALIDATION_SEED = 9001
 
 
 def ruleset_from_constraints(
@@ -122,3 +130,127 @@ def recheck_counterexamples(
         "rejected_claims": rejected,
         "break_found": len(verified) > 0,
     }
+
+
+def _append_open_issue(row: dict[str, Any]) -> None:
+    OPEN_ISSUES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with OPEN_ISSUES_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, default=str) + "\n")
+
+
+def gate_fix(
+    current_code: str,
+    candidate_code: str,
+    ruleset: RuleSet,
+    counterexamples: list[dict[str, Any]],
+    *,
+    rated_mw: float | None = None,
+    validation_seed: int = FIX_VALIDATION_SEED,
+    n_validation: int = 20,
+    profile_id: str | None = None,
+    log_open_issue: bool = True,
+) -> dict[str, Any]:
+    """Accept a hardener/engineer fix only if it (a) clears every counterexample,
+    (b) passes every preset, and (c) is at least as good as the current controller
+    on the validation random suite (SEED=9001, gate-only).
+
+    A rejected fix keeps ``current_code`` and optionally logs the counterexample
+    as an open issue.
+    """
+    from eval.random_suite import sample_random_suite_for_ruleset
+
+    mw = float(rated_mw if rated_mw is not None else ruleset.rated_mw)
+    result: dict[str, Any] = {
+        "accepted": False,
+        "kept_code": "current",
+        "controller_code": current_code,
+        "validation_seed": validation_seed,
+        "reason": None,
+        "message": None,
+        "worse_on_n": 0,
+        "checks": {},
+    }
+
+    # (a) counterexamples must pass under the candidate
+    cx_check = (
+        recheck_counterexamples(candidate_code, ruleset, counterexamples, rated_mw=mw)
+        if counterexamples
+        else {"break_found": False, "verified_breaks": [], "rejected_claims": []}
+    )
+    result["checks"]["counterexamples"] = cx_check
+    if cx_check.get("break_found"):
+        result["reason"] = "counterexample_still_breaks"
+        result["message"] = "fix rejected: counterexample still breaks the candidate"
+        if log_open_issue:
+            _log_rejected_fix_issue(result, profile_id, counterexamples, current_code, candidate_code)
+        return result
+
+    # (b) every preset must pass
+    presets = all_preset_workloads(cluster_mw=mw)
+    preset_ev = recheck_controller(candidate_code, ruleset, presets, timeout_s=60.0)
+    result["checks"]["presets"] = {
+        "passed": preset_ev["passed"],
+        "workloads_passed": (preset_ev.get("eval") or {}).get("workloads_passed"),
+        "workloads_evaluable": (preset_ev.get("eval") or {}).get("workloads_evaluable"),
+    }
+    if not preset_ev["passed"]:
+        result["reason"] = "presets_failed"
+        result["message"] = "fix rejected: candidate failed one or more preset workloads"
+        if log_open_issue:
+            _log_rejected_fix_issue(result, profile_id, counterexamples, current_code, candidate_code)
+        return result
+
+    # (c) validation random suite: candidate must pass at least as many as current
+    suite = sample_random_suite_for_ruleset(ruleset, n=n_validation, seed=validation_seed, cluster_mw=mw)
+    current_ev = recheck_controller(current_code, ruleset, suite, timeout_s=60.0)
+    candidate_ev = recheck_controller(candidate_code, ruleset, suite, timeout_s=60.0)
+    cur_n = int((current_ev.get("eval") or {}).get("workloads_passed") or 0)
+    cand_n = int((candidate_ev.get("eval") or {}).get("workloads_passed") or 0)
+    result["checks"]["validation"] = {
+        "seed": validation_seed,
+        "current_passed": cur_n,
+        "candidate_passed": cand_n,
+        "n": n_validation,
+    }
+    if cand_n < cur_n:
+        worse_n = cur_n - cand_n
+        result["reason"] = "validation_regression"
+        result["worse_on_n"] = worse_n
+        result["message"] = f"fix rejected: it made things worse on {worse_n} other workloads"
+        if log_open_issue:
+            _log_rejected_fix_issue(result, profile_id, counterexamples, current_code, candidate_code)
+        return result
+
+    result["accepted"] = True
+    result["kept_code"] = "candidate"
+    result["controller_code"] = candidate_code
+    result["reason"] = "accepted"
+    result["message"] = (
+        f"fix accepted: counterexamples clear, presets pass, "
+        f"validation SEED={validation_seed} {cand_n}/{n_validation} >= current {cur_n}/{n_validation}"
+    )
+    return result
+
+
+def _log_rejected_fix_issue(
+    gate: dict[str, Any],
+    profile_id: str | None,
+    counterexamples: list[dict[str, Any]],
+    current_code: str,
+    candidate_code: str,
+) -> None:
+    _append_open_issue(
+        {
+            "ts_utc": datetime.now(timezone.utc).isoformat(),
+            "event": "fix_rejected_open_issue",
+            "profile_id": profile_id,
+            "reason": gate.get("reason"),
+            "message": gate.get("message"),
+            "worse_on_n": gate.get("worse_on_n"),
+            "validation": (gate.get("checks") or {}).get("validation"),
+            "counterexamples": counterexamples,
+            "current_code_bytes": len(current_code or ""),
+            "candidate_code_bytes": len(candidate_code or ""),
+            "kept": "current_controller",
+        }
+    )

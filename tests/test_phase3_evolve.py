@@ -448,13 +448,13 @@ def test_b3_random_search_and_random_suite_determinism() -> None:
     assert sum(1 for v in suite_a.values() if v.family == "slow") == 10
     assert all(v.job_start_s > 0.0 for v in suite_a.values())
 
-    # Single-family profile (e.g. slow-only 20 MW/min) MUST get 20 evaluable slow workloads!
+    # Slow-primary profile (20 MW/min): slow + band_long are evaluable; sampler still prefers slow.
     slow_only_rules = RuleSet(
         source_name="slow_only_test",
         rated_mw=100.0,
         constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min")],
     )
-    assert evaluable_families_for_ruleset(slow_only_rules) == ["slow"]
+    assert evaluable_families_for_ruleset(slow_only_rules) == ["slow", "band_long"]
     slow_suite = sample_random_suite_for_ruleset(slow_only_rules, n=20, seed=777)
     assert len(slow_suite) == 20
     assert all(v.family == "slow" for v in slow_suite.values())
@@ -466,7 +466,7 @@ def test_b3_random_search_and_random_suite_determinism() -> None:
     assert ev_slow.workloads_evaluable == 20
     assert ev_slow.workloads_not_evaluable == 0
 
-    # Fast-only profile (e.g. 5-55 Hz band) MUST get 20 evaluable fast workloads!
+    # Fast-primary profile (5-55 Hz band): fast + band_long evaluable; sampler still prefers fast.
     fast_only_rules = RuleSet(
         source_name="fast_only_test",
         rated_mw=100.0,
@@ -474,7 +474,7 @@ def test_b3_random_search_and_random_suite_determinism() -> None:
             Constraint("fluctuation_band", 3.5, "MW", page=11, snippet="5-55 Hz < 3.5 MW", freq_min_hz=5.0, freq_max_hz=55.0)
         ],
     )
-    assert evaluable_families_for_ruleset(fast_only_rules) == ["fast"]
+    assert evaluable_families_for_ruleset(fast_only_rules) == ["fast", "band_long"]
     fast_suite = sample_random_suite_for_ruleset(fast_only_rules, n=20, seed=777)
     assert len(fast_suite) == 20
     assert all(v.family == "fast" for v in fast_suite.values())

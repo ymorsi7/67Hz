@@ -203,15 +203,19 @@ Host score category: **passed** — None
 
 ## Hardening run totals
 
-- Rounds attempted / completed (attack_cycle events): **19** / **19**.
-- Timeout / read-timeout attack files: **20**.
-- Breaks found (backend-verified, max tally): **2**.
-- Fixes confirmed by backend (max tally fixes_applied): **2**.
-- **Most hardener turns timed out** at the 90 s client cap (20 timeout files vs 19 completed cycles). Host fell back to Rand20 probes; pause/resume is available.
+- Rounds attempted / completed (attack_cycle events): **26** / **26**.
+- Timeout / read-timeout attack files: **26**.
+- Breaks found (backend-verified, max tally): **5**.
+- Fixes confirmed by backend (max tally fixes_applied): **5**.
+- **Most hardener turns timed out** at the 90 s client cap (26 timeout files vs 26 completed cycles). Host fell back to Rand20 probes; pause/resume is available.
 
 ## Before and after the hardener agents
 
-One engineer↔hardener break-and-fix cycle on the cached GridSafe controllers for `lipa` and `lipa_pseg`. SEED=20261121 is the suite those controllers already touched; **SEED=4242 is held-out** for this fix.
+Engineer↔hardener break-and-fix cycles on cached GridSafe controllers for `lipa` and `lipa_pseg`. Every run kept: **ungated** (accepted any evolve that cleared the CX) and **gated** (accept only if CX + every preset + validation SEED=9001 ≥ current).
+
+### Ungated (historical) — holdout SEED=4242
+
+SEED=20261121 is the suite those controllers already touched; **SEED=4242** was never used before this fix. No validation gate: a fix that cleared the counterexample could still regress on unseen workloads.
 
 | Profile | Seed | Label | Before | After | Break found | Fix confirmed |
 | --- | ---: | --- | --- | --- | --- | --- |
@@ -222,6 +226,21 @@ One engineer↔hardener break-and-fix cycle on the cached GridSafe controllers f
 
 Source: `eval/results/harden_fix_4242.json`.
 - Holdout deltas: `lipa` Δ=-6 on SEED=4242 (19→13); `lipa_pseg` Δ=+2 on SEED=4242 (18→20).
+- **`lipa` regression:** ungated fix made the controller worse on holdout (19→13/20 @4242); this motivated the acceptance gate.
+
+### Gated — holdout SEED=31337 (never used before)
+
+Same profiles under the acceptance gate. Validation SEED=9001 is used **only** for the gate (not reported as holdout). Rejected fixes keep the current controller; the counterexample is logged as an open issue.
+
+| Profile | Seed | Label | Before | After | Break found | Gate accepted | Gate reason |
+| --- | ---: | --- | --- | --- | --- | --- | --- |
+| `lipa` | 20261121 | seen (20261121) | 19/20 FAIL | 19/20 FAIL | True | False | counterexample_still_breaks |
+| `lipa` | 31337 | never-used (31337) | 20/20 PASS | 20/20 PASS | True | False | counterexample_still_breaks |
+| `lipa_pseg` | 20261121 | seen (20261121) | 19/20 FAIL | 19/20 FAIL | True | False | counterexample_still_breaks |
+| `lipa_pseg` | 31337 | never-used (31337) | 19/20 FAIL | 19/20 FAIL | True | False | counterexample_still_breaks |
+
+Source: `eval/results/harden_fix_31337.json`.
+- Holdout deltas: `lipa` Δ=+0 on SEED=31337 (20→20; gate=False; rejected candidate would have been 18/20); `lipa_pseg` Δ=+0 on SEED=31337 (19→19; gate=False; rejected candidate would have been 20/20).
 
 ## Simulator limits
 
@@ -238,6 +257,6 @@ Source: `eval/results/harden_fix_4242.json`.
 2. Random-suite all-pass: GridSafe **9/11**, B0 **11/11**, B3 **9/11**.
 3. B2 run1 was mostly harness failures (7 code-failed-to-run / 1 format / 3 rule-breaks); run2 after fair prompt: **6/10** host passes.
 4. Extraction P=0.6785714285714286 R=1.0; FPs=9 (invented/wrong=1, quotes/dupes=8).
-5. Hardening: 19 rounds completed, 20 timeouts, 2 breaks, 2 fixes — most rounds timed out.
-6. Hardener fix holdout (SEED=4242): lipa 19→13/20 @4242; lipa_pseg 18→20/20 @4242.
+5. Hardening: 26 rounds completed, 26 timeouts, 5 breaks, 5 fixes — most rounds timed out.
+6. Hardener fix holdouts: lipa 19→13/20 @4242 ungated; lipa_pseg 18→20/20 @4242 ungated; lipa 20→20/20 @31337 gated(False); lipa_pseg 19→19/20 @31337 gated(False).
 
