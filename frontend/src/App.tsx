@@ -1815,7 +1815,7 @@ export function App() {
                     {String(r.entity || "Utility")} · page {String(r.page)}
                     {r.used_pct_of_limit != null ? ` · uses ${r.used_pct_of_limit}% of the limit` : ""}
                   </p>
-                  {(r.confirm_label || r.human_confirmed) && (
+                  {Boolean(r.confirm_label || r.human_confirmed) && (
                     <p className="text-sm mt-2 text-emerald-300">
                       {String(r.confirm_label || "Confirmed by a person, not by the Verifier")}
                     </p>
