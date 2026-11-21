@@ -1,0 +1,37 @@
+# GridSafe model routing (one-line swaps)
+# Distinct Gemini 4 models per job; never drop below two Gemini 4 models.
+
+reader:
+  model: gemini-4-neon
+  thinking_level: high
+  job: "Extract typed interconnection constraints with page citations from PDFs, page images, and camera photos."
+
+verifier:
+  api: decisions
+  model: gemini-decision-1
+  confidence_threshold: 0.75
+  fallback_model: gemini-4-hydrogen
+  fallback_active: false
+  job: "Calibrated yes/no verification per extracted constraint against cited page image; abstain below threshold."
+
+designer:
+  model: gemini-4-hydrogen
+  thinking_level: medium
+  job: "Fast parallel controller mutations in the evolve loop, and underlying model for managed agent gridsafe-engineer."
+
+hardener:
+  model: gemini-4-carbon
+  thinking_level: high
+  fallback_model: gemini-4-neon
+  fallback_active: false
+  job: "Background red-teaming and hardening agent; falls back to gemini-4-neon if unavailable."
+
+managed_agent:
+  id: gridsafe-engineer
+  base_agent: antigravity-preview-09-2026
+  model: gemini-4-hydrogen
+  hardener_agent_id: gridsafe-hardener
+  hardener_model: gemini-4-carbon
+
+comparison:
+  older_model: gemini-3.8-flash

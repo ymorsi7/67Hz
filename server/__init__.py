@@ -1,0 +1,1 @@
+"""GridSafe FastAPI backend package."""
