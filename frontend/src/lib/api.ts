@@ -1,5 +1,3 @@
-export type StepId = "Input" | "Read" | "Verify" | "Evolve" | "Attack" | "Certify"
-
 export interface HealthResponse {
   status: string
   mode: string
@@ -48,7 +46,7 @@ async function parseJson<T>(res: Response): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new Error(detail)
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail))
   }
   return res.json() as Promise<T>
 }
@@ -85,7 +83,6 @@ export async function selectPages(sessionId: string, pages: number[]): Promise<v
   )
 }
 
-/** Consume an SSE POST endpoint via fetch streaming (EventSource is GET-only). */
 export async function streamPost(
   url: string,
   body: unknown,
@@ -122,7 +119,7 @@ export async function streamPost(
           handlers[eventName]?.(data)
           handlers["*"]?.(data)
         } catch {
-          /* skip malformed */
+          /* skip */
         }
         eventName = "message"
       } else if (line.trim() === "") {
@@ -132,17 +129,9 @@ export async function streamPost(
   }
 }
 
-export async function getTraces(sessionId: string) {
-  return parseJson<Record<string, unknown>>(await fetch(`/api/ui/session/${sessionId}/traces`))
-}
-
-export async function getState(sessionId: string) {
-  return parseJson<Record<string, unknown>>(await fetch(`/api/ui/session/${sessionId}/state`))
-}
-
 export async function attack(
   sessionId: string,
-  params: { rhythm: number; depth: number; cluster_mw: number },
+  params: { pulse_rate: number; depth: number; cluster_mw: number },
 ) {
   return parseJson<Record<string, unknown>>(
     await fetch(`/api/ui/session/${sessionId}/attack`, {
@@ -156,12 +145,6 @@ export async function attack(
 export async function fetchAgentThreads() {
   return parseJson<{ threads: Array<{ file: string; data: unknown }> }>(
     await fetch("/api/ui/agent-threads"),
-  )
-}
-
-export async function fetchLatestReplay() {
-  return parseJson<{ replay: Record<string, unknown> | null; label: string }>(
-    await fetch("/api/ui/replay/latest"),
   )
 }
 

@@ -1,7 +1,15 @@
 import { motion } from "motion/react"
-import type { StepId } from "@/lib/api"
 
-const STEPS: StepId[] = ["Input", "Read", "Verify", "Evolve", "Attack", "Certify"]
+export type StepId = "Rulebook" | "Rules" | "Controller" | "Break"
+
+export const STEPS: StepId[] = ["Rulebook", "Rules", "Controller", "Break"]
+
+const LABELS: Record<StepId, string> = {
+  Rulebook: "1 Rulebook",
+  Rules: "2 Rules",
+  Controller: "3 Controller",
+  Break: "4 Break it",
+}
 
 export function Stepper({
   current,
@@ -19,8 +27,6 @@ export function Stepper({
       {STEPS.map((step, i) => {
         const isCurrent = step === current
         const isDone = completed.has(step) || i < currentIdx
-        const collapsed = !isCurrent && isDone
-
         return (
           <motion.button
             key={step}
@@ -29,17 +35,14 @@ export function Stepper({
             onClick={() => onJump?.(step)}
             className={`relative font-mono text-sm transition-colors border px-3 py-2.5 text-left ${
               isCurrent
-                ? "flex-[2] border-emerald-500/70 bg-emerald-500/10 text-emerald-200"
+                ? "flex-[1.4] border-emerald-500/70 bg-emerald-500/10 text-emerald-200"
                 : isDone
                   ? "flex-1 border-border/60 bg-card/40 text-muted-foreground hover:text-foreground"
                   : "flex-1 border-border/40 bg-transparent text-muted-foreground/60"
             }`}
           >
-            <span className="block text-[10px] uppercase tracking-widest opacity-60">
-              {String(i + 1).padStart(2, "0")}
-            </span>
-            <span className={`block ${collapsed ? "truncate" : "text-base font-semibold"}`}>
-              {step}
+            <span className={`block ${isCurrent ? "text-base font-semibold" : "text-sm"}`}>
+              {LABELS[step]}
             </span>
           </motion.button>
         )
@@ -47,5 +50,3 @@ export function Stepper({
     </nav>
   )
 }
-
-export { STEPS }
