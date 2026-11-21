@@ -931,15 +931,27 @@ export function App() {
         },
         verdict: (d) => {
           const v = String(d.verdict || "")
+          const gate = (d.gate as Record<string, unknown> | undefined) ?? undefined
+          const reason = String(gate?.reason || d.reason || "")
+          const worseN = Number(gate?.worse_on_n ?? d.worse_on_n ?? 0)
           let plain = String(d.message || d.verdict || "")
-          if (v === "break_found_and_fixed") plain = "Break found and fixed."
-          else if (v === "break_found_not_fixed" || /worse|reject/i.test(plain)) {
-            plain =
-              /worse/i.test(plain)
-                ? "Break found and the fix was rejected because it made other workloads worse."
-                : "Break found and the fix was rejected because it made other workloads worse."
+          if (v === "break_found_and_fixed") {
+            plain = "Break found and fixed."
           } else if (v === "no_break_within_budget" || v === "no_break") {
             plain = "No break found."
+          } else if (v === "break_found_not_fixed" || reason || /reject|still break|preset|worse/i.test(plain)) {
+            const r = reason.toLowerCase()
+            if (r === "counterexample_still_breaks" || /counterexample still break/i.test(plain)) {
+              plain =
+                "The agent proposed a fix, but GridSafe's check showed it did not stop the break. The fix was rejected and the issue is logged as open."
+            } else if (r === "validation_regression" || /worse on \d+/i.test(plain) || /made things worse/i.test(plain)) {
+              const n = Number.isFinite(worseN) ? worseN : 0
+              plain = `The fix was rejected because it made ${n} other workloads worse.`
+            } else if (r === "presets_failed" || /preset/i.test(plain)) {
+              plain = "The fix was rejected because it broke a rule on the standard tests."
+            } else if (v === "break_found_not_fixed") {
+              plain = "Break found and the fix was rejected."
+            }
           }
           setAgentVerdict(plain)
           setAgentHeartbeat(null)

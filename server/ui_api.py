@@ -1997,7 +1997,8 @@ def _parse_agent_thread_file(path: Path) -> dict[str, Any] | None:
             cx_break = e.get("counterexamples_still_break")
             if cx_break is None:
                 cx_break = e.get("cx_still_break")
-            ok = bool(e.get("preset_passed")) and bool(e.get("rand20_passed")) and not bool(cx_break)
+            preset_ok = e.get("preset_passed")
+            ok = bool(preset_ok) and bool(e.get("rand20_passed")) and not bool(cx_break)
             if ok:
                 fix_accepted = True
                 break_found = True if break_found is None else break_found
@@ -2005,15 +2006,26 @@ def _parse_agent_thread_file(path: Path) -> dict[str, Any] | None:
             else:
                 fix_rejected = True
                 break_found = True
-                _push("GridSafe", "Backend could not fully confirm the fix.", e, "rejected")
+                if bool(cx_break):
+                    reject_reason = reject_reason or "counterexample_still_breaks"
+                elif preset_ok is False:
+                    reject_reason = reject_reason or "presets_failed"
+                plain_rej = _plain_fix_reject_sentence(reject_reason, worse_on_n=worse_on_n)
+                _push(
+                    "GridSafe",
+                    plain_rej or "Backend could not fully confirm the fix.",
+                    e,
+                    "rejected",
+                )
             continue
 
         if ev == "fix_gate":
             accepted = bool(e.get("accepted"))
             reason = str(e.get("reason") or "")
             worse_n = int(e.get("worse_on_n") or 0)
-            if reason in {"validation_regression", "made_worse"} or worse_n > 0:
-                worse_workloads = True
+            checks = e.get("checks") if isinstance(e.get("checks"), dict) else {}
+            if worse_n > 0:
+                worse_on_n = worse_n
             if accepted:
                 fix_accepted = True
                 break_found = True
@@ -2021,10 +2033,26 @@ def _parse_agent_thread_file(path: Path) -> dict[str, Any] | None:
             else:
                 fix_rejected = True
                 break_found = True
-                msg = str(e.get("message") or "Fix rejected by backend gate.")
-                if worse_workloads and "worse" not in msg.lower():
-                    msg = "Fix rejected: it made other workloads worse."
-                _push("GridSafe", msg, e, "rejected")
+                if reason:
+                    reject_reason = reason
+                elif checks.get("counterexample_still_breaks") is True:
+                    reject_reason = "counterexample_still_breaks"
+                elif isinstance(checks.get("presets"), dict) and checks["presets"].get("passed") is False:
+                    reject_reason = "presets_failed"
+                elif worse_n > 0 or (
+                    isinstance(checks.get("validation"), dict)
+                    and checks["validation"].get("passed") is False
+                ):
+                    reject_reason = "validation_regression"
+                    if worse_n > 0:
+                        worse_on_n = worse_n
+                plain_rej = _plain_fix_reject_sentence(reject_reason, worse_on_n=worse_on_n)
+                _push(
+                    "GridSafe",
+                    plain_rej or str(e.get("message") or "Fix rejected by backend gate."),
+                    e,
+                    "rejected",
+                )
             continue
 
         if ev == "verdict":
@@ -2033,6 +2061,11 @@ def _parse_agent_thread_file(path: Path) -> dict[str, Any] | None:
                 break_found, fix_accepted = True, True
             elif v in {"break_found_not_fixed", "break_found_fix_rejected"}:
                 break_found, fix_rejected = True, True
+                gate = e.get("gate") if isinstance(e.get("gate"), dict) else {}
+                if isinstance(gate, dict) and gate.get("reason"):
+                    reject_reason = str(gate["reason"])
+                    if gate.get("worse_on_n") is not None:
+                        worse_on_n = int(gate.get("worse_on_n") or 0)
             elif v in {"no_break_within_budget", "no_break"}:
                 break_found = False
             if e.get("message"):
@@ -2054,11 +2087,21 @@ def _parse_agent_thread_file(path: Path) -> dict[str, Any] | None:
         else:
             recorded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(path.stat().st_mtime))
 
+    # Summary may also encode CX-still-breaks without a fix_gate event
+    if (
+        reject_reason is None
+        and fix_rejected
+        and summary.get("backend_cx_still_break") is True
+        and summary.get("fix_passed") is not True
+    ):
+        reject_reason = "counterexample_still_breaks"
+
     plain = _plain_agent_verdict(
         break_found=break_found,
         fix_accepted=fix_accepted,
         fix_rejected=fix_rejected,
-        worse_workloads=worse_workloads,
+        reject_reason=reject_reason,
+        worse_on_n=worse_on_n,
     )
     # Hardener-only completion (UI rounds cut before host verdict): still a verdict
     if plain is None and break_found is False and any(

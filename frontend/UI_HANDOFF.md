@@ -41,7 +41,7 @@ Header **Results** → `GET /api/ui/docs/results` (reads `RESULTS.md` + `FAILURE
 
 ## Agents panel (UI round 5)
 On **Break it**:
-- Default: `GET /api/ui/agent-threads/featured` — most recent completed `eval/agent_threads/` conversation that reached a verdict, preferring a break. Labeled **Recorded today at HH:MM** with plain verdict (break found and fixed / break found and the fix was rejected because it made other workloads worse / no break found).
+- Default: `GET /api/ui/agent-threads/featured` — most recent completed `eval/agent_threads/` conversation that reached a verdict, preferring a break. Labeled **Recorded today at HH:MM**. Rejection copy is reason-specific from thread data only: `counterexample_still_breaks` / validation worse-on-N / presets failed — never invent a reason.
 - Live button: **Run a new round now (takes about 5 minutes)** → `POST /api/agents/harden` SSE. Heartbeat shows `still working, N seconds`. Sliders stay usable while it runs. Tally line kept.
 
 ## Explainer (UI round 5)
