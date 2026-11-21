@@ -1,0 +1,16 @@
+{
+  "thread_id": "lipa_f11_20261121T182024Z",
+  "hardener_latency_s": 24.036,
+  "break_found": true,
+  "backend_accepted_break": true,
+  "fix_outcome": "fallback_b3",
+  "fix_passed": true,
+  "fix_elapsed_s": 25.27135554099368,
+  "backend_preset_passed": true,
+  "backend_rand20_passed": true,
+  "backend_cx_still_break": false,
+  "broken_still_breaks": true,
+  "hardener_ack_s": 10.495,
+  "hardener_ack": "{\"status\":\"ack\",\"notes\":\"fix received and backend-confirmed\"}",
+  "completed_at_utc": "2026-11-21T18:22:24.519934+00:00"
+}

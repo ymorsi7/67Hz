@@ -33,6 +33,9 @@ managed_agent:
   model: gemini-4-hydrogen
   hardener_agent_id: gridsafe-hardener
   hardener_model: gemini-4-carbon
+  repo_url: https://github.com/ymorsi7/67Hz
+  # Feature flag: set false to keep job/harden behind local evolve if agents path is down.
+  enable_agents: true
 
 comparison:
   older_model: gemini-3.8-flash

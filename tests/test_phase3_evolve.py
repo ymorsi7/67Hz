@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from eval.random_suite import sample_random_suite
+from eval.random_suite import (
+    evaluable_families_for_ruleset,
+    sample_random_suite,
+    sample_random_suite_for_ruleset,
+)
 from evolve.baselines import (
     run_b1_baseline,
     run_b3_baseline,
@@ -307,9 +311,69 @@ def control(obs: dict) -> dict[str, float]:
     assert event_types[-1] == "evolve_complete"
 
 
-def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
-    """Guaranteed outcome: conservative floor fallback passes frequency-only rules; refuses when fallback fails or needs review."""
-    # Frequency-only rule (like LIPA): 100% constant floor genuinely passes with 0 AC ripple!
+def test_evolve_loop_four_rung_ladder_and_never_worse_than_b3() -> None:
+    """Verify all 4 Designer rungs: evolved_compliant (<= B3) -> fallback_b3 -> fallback_conservative_floor -> refused."""
+    # Rung 1 & 2: when Hydrogen emits bad/worse candidates but B3 passes -> fallback_b3 and NEVER worse than B3!
+    ramp_ruleset = RuleSet(
+        source_name="test_b3_rung",
+        rated_mw=100.0,
+        constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min")],
+    )
+    wl_slow = {"slow": slow_preset_workloads(100.0)["slow_training_run"]}
+
+    def always_bad(sys_inst: str, prompt: str, gen: int, worker_id: int) -> str:
+        return "def control(obs):\n    return {'gpu_floor_mw': 0.0, 'gpu_cap_mw': float(obs['rated_mw']), 'battery_setpoint_mw': 0.0}\n"
+
+    b3_direct = run_b3_baseline(ramp_ruleset, wl_slow, n_evals=12, seed=101)
+    assert b3_direct.eval_result.passed is True
+
+    res_b3_rung = evolve_controller(
+        ramp_ruleset,
+        wl_slow,
+        population_size=2,
+        max_generations=1,
+        budget_s=20.0,
+        seed=101,
+        b3_n_evals=12,
+        mutator_fn=always_bad,
+    )
+    assert res_b3_rung.outcome == "fallback_b3"
+    assert res_b3_rung.passed is True
+    assert res_b3_rung.b3_eval is not None and res_b3_rung.best_eval is not None
+    assert res_b3_rung.best_eval.composite_score <= b3_direct.eval_result.composite_score + 1e-6
+
+    # Even if Hydrogen returns a *passing* candidate that scores WORSE than B3, Designer must keep B3 (never worse than B3)!
+    worse_passing_code = """
+import math
+def control(obs: dict) -> dict[str, float]:
+    p_raw = float(obs["p_raw_mw"])
+    rated = float(obs["rated_mw"])
+    dt = float(obs["dt"])
+    idle = float(obs["idle_mw"])
+    st = obs["state"]
+    # Legal ultra-slow ramp (0.05 MW/s = 3 MW/min << 20 MW/min) with huge curtailment -> passes but terrible score
+    if "pg" not in st:
+        st["pg"] = idle
+    p_target = st["pg"] + max(-0.05 * dt, min(0.05 * dt, p_raw - st["pg"]))
+    st["pg"] = p_target
+    return {"gpu_floor_mw": p_target, "gpu_cap_mw": p_target, "battery_setpoint_mw": 0.0}
+"""
+    res_never_worse = evolve_controller(
+        ramp_ruleset,
+        wl_slow,
+        population_size=2,
+        max_generations=1,
+        budget_s=20.0,
+        seed=101,
+        b3_n_evals=12,
+        mutator_fn=lambda *a: worse_passing_code,
+    )
+    assert res_never_worse.passed is True
+    assert res_never_worse.outcome == "fallback_b3"
+    assert res_never_worse.best_eval is not None
+    assert res_never_worse.best_eval.composite_score <= b3_direct.eval_result.composite_score + 1e-6
+
+    # Rung 3: conservative floor fallback when neither evolved nor B3 passes (tested cleanly with enable_b3_seed=False)
     freq_ruleset = RuleSet(
         source_name="test_fallback_freq",
         rated_mw=100.0,
@@ -318,10 +382,6 @@ def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
         ],
     )
     wl_fast = {"ssr1": preset_workloads(100.0)["ssr_mode1_attack"]}
-
-    def always_bad(sys_inst: str, prompt: str, gen: int, worker_id: int) -> str:
-        return "def control(obs):\n    return {'gpu_floor_mw': 0.0, 'gpu_cap_mw': float(obs['rated_mw']), 'battery_setpoint_mw': 0.0}\n"
-
     res_fb = evolve_controller(
         freq_ruleset,
         wl_fast,
@@ -329,31 +389,27 @@ def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
         population_size=2,
         max_generations=1,
         budget_s=20.0,
+        enable_b3_seed=False,
         mutator_fn=always_bad,
     )
     assert res_fb.outcome == "fallback_conservative_floor"
     assert res_fb.passed is True
     assert res_fb.fallback_eval is not None and res_fb.fallback_eval.passed is True
 
-    # Strict idle-start ramp rule where static 100% floor jumps 15->100 MW at t=0 -> MUST refuse!
-    ramp_ruleset = RuleSet(
-        source_name="test_refusal_ramp",
-        rated_mw=100.0,
-        constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min")],
-    )
-    wl_slow = {"slow": slow_preset_workloads(100.0)["slow_training_run"]}
+    # Rung 4: refusal when evolved, B3, and conservative floor all fail
     res_ref_ramp = evolve_controller(
         ramp_ruleset,
         wl_slow,
         population_size=2,
         max_generations=1,
         budget_s=20.0,
+        enable_b3_seed=False,
         mutator_fn=always_bad,
     )
     assert res_ref_ramp.outcome == "refused"
     assert res_ref_ramp.passed is False
 
-    # Unverified constraint needing human review -> explicit refusal
+    # Unverified constraint needing human review -> immediate refusal (even with B3 enabled)
     review_ruleset = RuleSet(
         source_name="needs_review_doc",
         rated_mw=100.0,
@@ -383,7 +439,7 @@ def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
 
 
 def test_b3_random_search_and_random_suite_determinism() -> None:
-    """Steps 4 & 6: B3 random search works without LLM; eval/random_suite samples N=20 deterministically."""
+    """Steps 4 & 6 + Part A.3: B3 works without LLM; every profile gets 20 evaluable random workloads."""
     suite_a = sample_random_suite(n=20, seed=777)
     suite_b = sample_random_suite(n=20, seed=777)
     assert len(suite_a) == 20
@@ -392,13 +448,46 @@ def test_b3_random_search_and_random_suite_determinism() -> None:
     assert sum(1 for v in suite_a.values() if v.family == "slow") == 10
     assert all(v.job_start_s > 0.0 for v in suite_a.values())
 
-    ruleset = RuleSet(
-        source_name="b3_test",
+    # Single-family profile (e.g. slow-only 20 MW/min) MUST get 20 evaluable slow workloads!
+    slow_only_rules = RuleSet(
+        source_name="slow_only_test",
         rated_mw=100.0,
         constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min")],
     )
+    assert evaluable_families_for_ruleset(slow_only_rules) == ["slow"]
+    slow_suite = sample_random_suite_for_ruleset(slow_only_rules, n=20, seed=777)
+    assert len(slow_suite) == 20
+    assert all(v.family == "slow" for v in slow_suite.values())
+    ev_slow = evaluate_controller_sandboxed(
+        "def control(obs):\n    return {'gpu_floor_mw': 0.0, 'gpu_cap_mw': float(obs['rated_mw']), 'battery_setpoint_mw': 0.0}\n",
+        slow_only_rules,
+        slow_suite,
+    )
+    assert ev_slow.workloads_evaluable == 20
+    assert ev_slow.workloads_not_evaluable == 0
+
+    # Fast-only profile (e.g. 5-55 Hz band) MUST get 20 evaluable fast workloads!
+    fast_only_rules = RuleSet(
+        source_name="fast_only_test",
+        rated_mw=100.0,
+        constraints=[
+            Constraint("fluctuation_band", 3.5, "MW", page=11, snippet="5-55 Hz < 3.5 MW", freq_min_hz=5.0, freq_max_hz=55.0)
+        ],
+    )
+    assert evaluable_families_for_ruleset(fast_only_rules) == ["fast"]
+    fast_suite = sample_random_suite_for_ruleset(fast_only_rules, n=20, seed=777)
+    assert len(fast_suite) == 20
+    assert all(v.family == "fast" for v in fast_suite.values())
+
+    # Every dev utility profile gets exactly 20 evaluable workloads (held_out reserved for make eval-final)
+    for prof in load_utility_profiles(rated_mw=100.0, split="dev"):
+        psuite = sample_random_suite_for_ruleset(prof.ruleset, n=20, seed=777)
+        assert len(psuite) == 20
+        fams = set(evaluable_families_for_ruleset(prof.ruleset))
+        assert all(w.family in fams for w in psuite.values()), prof.profile_id
+
     wl = {"slow": slow_preset_workloads(100.0)["slow_training_run"]}
-    b3 = run_b3_baseline(ruleset, wl, n_evals=8, seed=101)
+    b3 = run_b3_baseline(slow_only_rules, wl, n_evals=8, seed=101)
     assert b3.baseline == "B3"
     assert b3.n_evals == 8
     assert validate_controller_code(b3.code).ok
@@ -417,7 +506,8 @@ def test_utility_profiles_dual_family_and_entity_coverage() -> None:
         assert all(c.entity for c in prof.ruleset.constraints), f"Missing entity on {prof.profile_id}"
 
     workloads = all_preset_workloads(100.0)
-    for prof in profiles:
+    # Run simulations on dev profiles only here; held_out profiles run exclusively in `make eval-final`.
+    for prof in [p for p in profiles if p.split == "dev"]:
         noop_res = run_uncontrolled_baseline(prof.ruleset, workloads)
         assert len(noop_res.eval_result.unevaluated_constraints) == 0, (
             f"{prof.profile_id} left unevaluated constraints: {noop_res.eval_result.unevaluated_constraints}"

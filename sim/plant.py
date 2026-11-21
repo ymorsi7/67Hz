@@ -21,6 +21,9 @@ from workload.synth import WorkloadTrace
 
 ControllerFn = Callable[[dict[str, Any]], dict[str, Any]]
 
+# Relative energy conservation gate: |energy_balance_error_mwh| / total_energy_throughput_mwh < 1e-12
+ENERGY_LEDGER_REL_TOL = 1e-12
+
 
 @dataclass(frozen=True)
 class BatteryConfig:
@@ -69,6 +72,7 @@ class SimulationMetrics:
     energy_batt_loss_mwh: float
     energy_batt_delta_mwh: float  # E_final - E_init
     energy_balance_error_mwh: float
+    energy_balance_rel_error: float
     energy_overhead_pct: float
     throughput_loss_pct: float
     battery_throughput_mwh: float
@@ -167,6 +171,7 @@ def simulate_plant(
     e_min = batt.soc_min * cap_mwh
     e_max = batt.soc_max * cap_mwh
     e_init = batt.initial_soc * cap_mwh
+    e_delta = 0.0
     e_curr = e_init
     p_batt_max = float(batt.max_power_mw)
     eta_c = float(batt.eta_charge)
@@ -242,7 +247,8 @@ def simulate_plant(
                 max_dis = ((e_curr - e_min) * eta_d) / dt_h
                 batt_i = b_cmd if b_cmd <= max_dis else max(0.0, max_dis)
                 de_int = (batt_i * dt_h) / eta_d
-                e_curr = max(e_min, e_curr - de_int)
+                e_delta = max(e_min - e_init, e_delta - de_int)
+                e_curr = e_init + e_delta
                 total_batt_loss_mwh += (batt_i * dt_h) * ((1.0 / eta_d) - 1.0)
             elif b_cmd < 0.0:
                 # Charging: increases stored energy by p_chg * dt_h * eta_c
@@ -252,7 +258,8 @@ def simulate_plant(
                     p_chg = max(0.0, max_chg)
                 batt_i = -p_chg
                 de_int = p_chg * dt_h * eta_c
-                e_curr = min(e_max, e_curr + de_int)
+                e_delta = min(e_max - e_init, e_delta + de_int)
+                e_curr = e_init + e_delta
                 total_batt_loss_mwh += (p_chg * dt_h) * (1.0 - eta_c)
             else:
                 batt_i = 0.0
@@ -286,13 +293,19 @@ def simulate_plant(
     energy_grid_mwh = float(np.sum(p_grid) * dt_h)
     energy_dummy_mwh = float(np.sum(p_dummy) * dt_h)
     energy_curtailed_mwh = float(np.sum(p_curtailed) * dt_h)
-    energy_batt_delta_mwh = e_curr - e_init
+    energy_batt_delta_mwh = e_delta
 
     # Exact energy balance:
     # energy_grid_mwh + (e_init - e_curr) == energy_gpu_mwh + total_batt_loss_mwh
     lhs = energy_grid_mwh - energy_batt_delta_mwh
     rhs = energy_gpu_mwh + total_batt_loss_mwh
     energy_balance_error_mwh = abs(lhs - rhs)
+    total_energy_throughput_mwh = max(
+        energy_gpu_mwh + total_batt_throughput_mwh + total_batt_loss_mwh,
+        abs(energy_grid_mwh),
+        1e-12,
+    )
+    energy_balance_rel_error = energy_balance_error_mwh / total_energy_throughput_mwh
 
     denom_raw = max(energy_raw_mwh, 1e-12)
     energy_overhead_pct = ((energy_dummy_mwh + total_batt_loss_mwh) / denom_raw) * 100.0
@@ -312,6 +325,7 @@ def simulate_plant(
         energy_batt_loss_mwh=total_batt_loss_mwh,
         energy_batt_delta_mwh=energy_batt_delta_mwh,
         energy_balance_error_mwh=energy_balance_error_mwh,
+        energy_balance_rel_error=energy_balance_rel_error,
         energy_overhead_pct=energy_overhead_pct,
         throughput_loss_pct=throughput_loss_pct,
         battery_throughput_mwh=total_batt_throughput_mwh,

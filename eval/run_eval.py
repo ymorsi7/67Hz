@@ -11,12 +11,17 @@ import time
 import numpy as np
 
 from eval.extraction import evaluate_extraction
-from eval.random_suite import sample_random_suite
+from eval.random_suite import sample_random_suite_for_ruleset
 from evolve.sandbox import evaluate_controller_sandboxed
 from rules.checker import check_compliance
 from rules.profiles import load_utility_profiles
 from rules.schema import Constraint, RuleSet
-from sim.plant import fixed_floor_controller, noop_controller, simulate_plant
+from sim.plant import (
+    ENERGY_LEDGER_REL_TOL,
+    fixed_floor_controller,
+    noop_controller,
+    simulate_plant,
+)
 from sim.shaft import load_shaft_model
 from workload.synth import all_preset_workloads, generate_workload
 
@@ -51,6 +56,7 @@ def run_phase1_validation() -> dict:
 
     timings_s: list[float] = []
     max_energy_err = 0.0
+    max_energy_rel_err = 0.0
     preset_summary: list[dict] = []
 
     for name, params in presets.items():
@@ -61,10 +67,12 @@ def run_phase1_validation() -> dict:
         elapsed = time.perf_counter() - t0
         timings_s.append(elapsed)
         max_energy_err = max(max_energy_err, sim_raw.metrics.energy_balance_error_mwh)
+        max_energy_rel_err = max(max_energy_rel_err, sim_raw.metrics.energy_balance_rel_error)
 
         sim_b1 = simulate_plant(trace, controller=fixed_floor_controller(0.90), shaft_model=shaft)
         rep_b1 = check_compliance(sim_b1, ruleset)
         max_energy_err = max(max_energy_err, sim_b1.metrics.energy_balance_error_mwh)
+        max_energy_rel_err = max(max_energy_rel_err, sim_b1.metrics.energy_balance_rel_error)
 
         def _active_batt_probe(obs: dict) -> dict[str, float]:
             return {
@@ -75,6 +83,7 @@ def run_phase1_validation() -> dict:
 
         sim_batt = simulate_plant(trace, controller=_active_batt_probe, shaft_model=shaft)
         max_energy_err = max(max_energy_err, sim_batt.metrics.energy_balance_error_mwh)
+        max_energy_rel_err = max(max_energy_rel_err, sim_batt.metrics.energy_balance_rel_error)
 
         preset_summary.append(
             {
@@ -91,13 +100,15 @@ def run_phase1_validation() -> dict:
         )
 
     max_eval_s = max(timings_s)
-    all_gates_pass = bool(mode_report["passed"] and max_eval_s < 0.5 and max_energy_err < 1e-9)
+    all_gates_pass = bool(mode_report["passed"] and max_eval_s < 0.5 and max_energy_rel_err < ENERGY_LEDGER_REL_TOL)
     return {
         "passed": all_gates_pass,
         "mode_report": mode_report,
         "max_eval_time_s": max_eval_s,
         "mean_eval_time_s": float(np.mean(timings_s)),
         "max_energy_balance_error_mwh": max_energy_err,
+        "max_energy_balance_rel_error": max_energy_rel_err,
+        "energy_ledger_rel_tol": ENERGY_LEDGER_REL_TOL,
         "presets": preset_summary,
     }
 
@@ -147,12 +158,11 @@ def _print_phase3_summary(p3: dict, mode: str) -> None:
 
 
 def _run_unseen_random_eval(p3: dict, seed: int, n_workloads: int, mode: str) -> None:
-    """Evaluate cached controllers on N unseen randomly sampled workloads (chosen by --seed)."""
-    suite = sample_random_suite(n=n_workloads, seed=seed, cluster_mw=100.0)
+    """Evaluate cached controllers on N unseen evaluable random workloads per profile."""
     profiles_by_id = {p.profile_id: p for p in load_utility_profiles(rated_mw=100.0)}
     is_3b = p3.get("schema_version") == "phase3b"
 
-    print(f"\n[eval:{mode}] Unseen Random Workload Suite (N={n_workloads}, seed={seed}):")
+    print(f"\n[eval:{mode}] Unseen Random Workload Suite (N={n_workloads} evaluable/profile, seed={seed}):")
     totals = {k: [0, 0] for k in ("uncontrolled", "b1", "b0", "b3", "gridsafe")}
 
     for rec in p3.get("profiles", []):
@@ -164,6 +174,7 @@ def _run_unseen_random_eval(p3: dict, seed: int, n_workloads: int, mode: str) ->
         if prof is None:
             continue
 
+        suite = sample_random_suite_for_ruleset(prof.ruleset, n=n_workloads, seed=seed, cluster_mw=100.0)
         codes: dict[str, str | None] = {
             "uncontrolled": rec["uncontrolled"]["code"],
             "b1": rec["b1"]["code"],
@@ -177,7 +188,7 @@ def _run_unseen_random_eval(p3: dict, seed: int, n_workloads: int, mode: str) ->
             if not c_str:
                 parts.append(f"{label}=n/a")
                 continue
-            ev = evaluate_controller_sandboxed(c_str, prof.ruleset, suite, timeout_s=20.0)
+            ev = evaluate_controller_sandboxed(c_str, prof.ruleset, suite, timeout_s=25.0)
             totals[label][1] += 1
             if ev.passed:
                 totals[label][0] += 1
@@ -207,8 +218,9 @@ def main() -> int:
         f"(mean = {p1['mean_eval_time_s']*1000:.1f} ms, max = {p1['max_eval_time_s']*1000:.1f} ms < 500 ms)"
     )
     print(
-        f"  Energy ledger:  {'PASS' if p1['max_energy_balance_error_mwh'] < 1e-9 else 'FAIL'} "
-        f"(max residual = {p1['max_energy_balance_error_mwh']:.3e} MWh)"
+        f"  Energy ledger:  {'PASS' if p1['max_energy_balance_rel_error'] < p1['energy_ledger_rel_tol'] else 'FAIL'} "
+        f"(max rel residual = {p1['max_energy_balance_rel_error']:.3e} < {p1['energy_ledger_rel_tol']:.0e}; "
+        f"abs = {p1['max_energy_balance_error_mwh']:.3e} MWh)"
     )
     for row in p1["presets"]:
         print(
@@ -218,8 +230,9 @@ def main() -> int:
             f"| B1_overhead={row['b1_energy_overhead_pct']:.1f}%"
         )
 
-    ext_summary = evaluate_extraction()
-    print(f"\n[eval:{args.mode}] Phase 2 Extraction Evaluation:")
+    ext_split = "dev" if args.mode == "dev" else None
+    ext_summary = evaluate_extraction(split_filter=ext_split)
+    print(f"\n[eval:{args.mode}] Phase 2 Extraction Evaluation ({ext_split or 'dev+held_out'}):")
     if ext_summary.status == "no gold labels":
         print(f"  Status: {ext_summary.message}")
     else:
@@ -233,7 +246,10 @@ def main() -> int:
     all_profiles = load_utility_profiles(rated_mw=100.0)
     dev_n = sum(1 for p in all_profiles if p.split == "dev")
     held_n = sum(1 for p in all_profiles if p.split == "held_out")
-    print(f"  Loaded profiles: {dev_n} dev, {held_n} held_out")
+    if args.mode == "dev":
+        print(f"  Evaluating dev split only: {dev_n} dev profiles ({held_n} held_out reserved for `make eval-final`)")
+    else:
+        print(f"  Loaded profiles: {dev_n} dev, {held_n} held_out")
     if PHASE3_CACHE.exists():
         p3 = json.loads(PHASE3_CACHE.read_text(encoding="utf-8"))
         _print_phase3_summary(p3, mode=args.mode)

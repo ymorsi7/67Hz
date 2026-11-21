@@ -1,15 +1,17 @@
-"""Deterministic, random-search, and single-shot LLM baselines (Noop, B1, B0, B3).
+"""Deterministic, random-search, and single-shot LLM baselines (Noop, B1, B0, B2, B3).
 
 - Uncontrolled (Noop): zero mitigation.
 - B1: fixed 90% GPU power floor, no battery.
 - B0: end-to-end single-shot Gemini 4 Neon — FULL raw PDF in, controller out,
   one Neon call, NO Reader page slicing, NO verified constraints, NO checker loop.
+- B2: stock Antigravity agent, same document, no skills/hooks/functions/checker
+  (implemented in evolve.b2; host scores after the fact).
 - B3: low-pass filter + battery policy tuned by seeded random search with the
   exact same number of simulator evaluations GridSafe used. Zero LLM calls.
 
 All baselines are scored by the exact same sandboxed deterministic checker
 (`evolve.sandbox.evaluate_controller_sandboxed`) on the exact same profiles and
-workloads as GridSafe Designer. Pure Python + numpy (+ optional google-genai for B0).
+workloads as GridSafe Designer. Pure Python + numpy (+ optional google-genai for B0/B2).
 """
 
 from __future__ import annotations
@@ -521,4 +523,39 @@ def run_b3_baseline(
         notes=notes,
         seed=seed,
         n_evals=n_trials,
+    )
+
+
+def run_b2_baseline(
+    ruleset: RuleSet,
+    workloads: dict[str, WorkloadParams],
+    *,
+    pdf_path: str | Path | None = None,
+    timeout_s: float = 300.0,
+) -> BaselineResult:
+    """Baseline B2: stock Antigravity, no skills/hooks/functions/checker (see evolve.b2)."""
+    from evolve.b2 import run_b2_baseline as _run_b2
+
+    res = _run_b2(ruleset, workloads, pdf_path=pdf_path, timeout_s=timeout_s)
+    return BaselineResult(
+        baseline="B2",
+        model=res.model,
+        code=res.code,
+        eval_result=res.eval_result
+        or CandidateEval(
+            passed=False,
+            workloads_passed=0,
+            workloads_total=len(workloads),
+            composite_score=1e9,
+            mean_energy_overhead_pct=0.0,
+            mean_throughput_loss_pct=0.0,
+            mean_battery_wear=0.0,
+            max_shaft_torque_pu=0.0,
+            worst_margin_pct=None,
+            worst_constraint_id=None,
+            error=res.notes,
+            elapsed_s=res.elapsed_s,
+        ),
+        elapsed_s=res.elapsed_s,
+        notes=res.notes,
     )

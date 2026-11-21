@@ -1,0 +1,7 @@
+{
+  "hardener_hop_latency_s": 10.127,
+  "interaction_id": "v1_ChdqOThCYTZIUk9KeUgxc2dQb3B1RXVRWRIXajk4QmE2SFJPSnlIMXNnUG9wdUV1UVk",
+  "status": "completed",
+  "output_text": "{\"status\":\"ack\",\"received\":true,\"controller_bytes\":1917,\"notes\":\"hardener received controller\"}",
+  "thread_id": "minimal_exchange_fast_20261121T181446Z"
+}

@@ -126,9 +126,16 @@ class CandidateRecord:
 
 @dataclass
 class EvolutionResult:
-    """Guaranteed outcome of GridSafe Designer evolution."""
+    """Guaranteed outcome of GridSafe Designer evolution.
 
-    outcome: str  # "evolved_compliant" | "fallback_conservative_floor" | "refused"
+    Fallback ladder:
+      1. evolved_compliant (LLM candidate passes and scores <= B3)
+      2. fallback_b3 (tuned low-pass + battery policy passes)
+      3. fallback_conservative_floor (100% fixed floor passes)
+      4. refused (explicit refusal with reason)
+    """
+
+    outcome: str  # "evolved_compliant" | "fallback_b3" | "fallback_conservative_floor" | "refused"
     passed: bool
     model: str
     thinking_level: str
@@ -142,6 +149,7 @@ class EvolutionResult:
     total_static_rejected: int
     elapsed_s: float
     seed: int | None = None
+    b3_eval: CandidateEval | None = None
     refusal_reason: str | None = None
     history: list[CandidateRecord] = field(default_factory=list)
 
@@ -155,6 +163,7 @@ class EvolutionResult:
             "best_code": self.best_code,
             "best_eval": self.best_eval.to_dict() if self.best_eval else None,
             "seed_eval": self.seed_eval.to_dict(),
+            "b3_eval": self.b3_eval.to_dict() if self.b3_eval else None,
             "fallback_eval": self.fallback_eval.to_dict() if self.fallback_eval else None,
             "generations_completed": self.generations_completed,
             "total_candidates_evaluated": self.total_candidates_evaluated,
@@ -383,6 +392,17 @@ def _unified_diff(old_code: str, new_code: str) -> str:
     return "\n".join(diff_lines[:80])
 
 
+def _is_better_eval(cand: CandidateEval, incumbent: CandidateEval | None) -> bool:
+    """Return True if `cand` strictly beats `incumbent` (passing beats failing; lower score wins)."""
+    if incumbent is None:
+        return True
+    if cand.passed and not incumbent.passed:
+        return True
+    if cand.passed == incumbent.passed and cand.composite_score < incumbent.composite_score - 1e-6:
+        return True
+    return False
+
+
 def evolve_controller(
     ruleset: RuleSet,
     workloads: dict[str, WorkloadParams],
@@ -397,10 +417,14 @@ def evolve_controller(
     eval_timeout_s: float = 10.0,
     strict_review: bool = True,
     seed: int | None = None,
+    enable_b3_seed: bool = True,
+    b3_n_evals: int = 19,
     on_event: EventCallback | None = None,
     mutator_fn: MutatorFn | None = None,
 ) -> EvolutionResult:
-    """Run parallel Hydrogen evolution with sandboxed deterministic gate and guaranteed fallback."""
+    """Run parallel Hydrogen evolution seeded by B3 with a 4-rung safety ladder:
+    evolved controller (scoring <= B3) -> B3 -> conservative floor -> explicit refusal.
+    """
     t_start = time.perf_counter()
     cfg = load_designer_config()
     eff_model = model or cfg["model"]
@@ -427,6 +451,7 @@ def evolve_controller(
             "population_size": pop_size,
             "budget_s": budget_s,
             "seed": seed,
+            "enable_b3_seed": enable_b3_seed,
             "workloads": list(workloads.keys()),
         },
     )
@@ -469,6 +494,7 @@ def evolve_controller(
             best_code=None,
             best_eval=None,
             seed_eval=seed_eval,
+            b3_eval=None,
             fallback_eval=None,
             generations_completed=0,
             total_candidates_evaluated=1,
@@ -482,11 +508,47 @@ def evolve_controller(
         emit("evolve_complete", {"outcome": res.outcome, "passed": False, "refusal_reason": reason})
         return res
 
-    best_code: str = base_code
-    best_eval: CandidateEval = seed_eval
+    # Tune B3 (low-pass + battery random search, no LLM) as Designer starting point and second fallback rung.
+    b3_code: str | None = None
+    b3_eval: CandidateEval | None = None
+    if enable_b3_seed and b3_n_evals > 0:
+        from evolve.baselines import run_b3_baseline
+
+        b3_res = run_b3_baseline(
+            ruleset,
+            workloads,
+            n_evals=b3_n_evals,
+            seed=seed if seed is not None else 42,
+            plant_config=plant_config,
+            strict_review=strict_review,
+        )
+        b3_code = b3_res.code
+        b3_eval = b3_res.eval_result
+        emit(
+            "b3_seed_evaluated",
+            {
+                "passed": b3_eval.passed,
+                "score": round(b3_eval.composite_score, 4),
+                "overhead_pct": round(b3_eval.mean_energy_overhead_pct, 2),
+                "throughput_loss_pct": round(b3_eval.mean_throughput_loss_pct, 2),
+                "worst_margin_pct": b3_eval.worst_margin_pct,
+                "n_evals": b3_res.n_evals,
+            },
+        )
+
+    # Start Designer evolution from B3 whenever B3 is at least as good as (or beats) the default seed.
+    if b3_code is not None and b3_eval is not None and (seed_code is None or _is_better_eval(b3_eval, seed_eval)):
+        best_code: str = b3_code
+        best_eval: CandidateEval = b3_eval
+    else:
+        best_code = base_code
+        best_eval = seed_eval
+
+    best_evolved_code: str | None = None
+    best_evolved_eval: CandidateEval | None = None
     history: list[CandidateRecord] = []
-    total_evals = 1
-    total_passed = 1 if seed_eval.passed else 0
+    total_evals = 1 + (1 if b3_eval is not None else 0)
+    total_passed = (1 if seed_eval.passed else 0) + (1 if (b3_eval and b3_eval.passed) else 0)
     total_static_rejected = 0
     recent_errors: list[str] = []
     gens_completed = 0
@@ -611,10 +673,10 @@ def evolve_controller(
 
         for rec in gen_records:
             ev = rec.eval_result
-            is_better = (ev.passed and not best_eval.passed) or (
-                ev.passed == best_eval.passed and ev.composite_score < best_eval.composite_score - 1e-6
-            )
-            if is_better:
+            if _is_better_eval(ev, best_evolved_eval):
+                best_evolved_code = rec.code
+                best_evolved_eval = ev
+            if _is_better_eval(ev, best_eval):
                 best_code = rec.code
                 best_eval = ev
                 gen_improved = True
@@ -644,16 +706,72 @@ def evolve_controller(
         ):
             break
 
+    # 4-rung safety ladder:
+    #   Rung 1: evolved controller (must pass AND score <= B3 if B3 passed)
+    #   Rung 2: B3 (tuned low-pass + battery) if it passed
+    #   Rung 3: conservative fixed floor if it passes
+    #   Rung 4: explicit refusal with reason
+    evolved_wins = (
+        best_evolved_code is not None
+        and best_evolved_eval is not None
+        and best_evolved_eval.passed
+        and (
+            b3_eval is None
+            or not b3_eval.passed
+            or best_evolved_eval.composite_score <= b3_eval.composite_score + 1e-9
+        )
+    )
     fallback_eval: CandidateEval | None = None
-    if best_eval.passed:
+    if evolved_wins and best_evolved_code is not None and best_evolved_eval is not None:
         res = EvolutionResult(
             outcome="evolved_compliant",
             passed=True,
             model=eff_model,
             thinking_level=eff_thinking,
-            best_code=best_code,
-            best_eval=best_eval,
+            best_code=best_evolved_code,
+            best_eval=best_evolved_eval,
             seed_eval=seed_eval,
+            b3_eval=b3_eval,
+            fallback_eval=None,
+            generations_completed=gens_completed,
+            total_candidates_evaluated=total_evals,
+            total_candidates_passed=total_passed,
+            total_static_rejected=total_static_rejected,
+            elapsed_s=time.perf_counter() - t_start,
+            seed=seed,
+            refusal_reason=None,
+            history=history,
+        )
+    elif b3_code is not None and b3_eval is not None and b3_eval.passed:
+        res = EvolutionResult(
+            outcome="fallback_b3",
+            passed=True,
+            model=eff_model,
+            thinking_level=eff_thinking,
+            best_code=b3_code,
+            best_eval=b3_eval,
+            seed_eval=seed_eval,
+            b3_eval=b3_eval,
+            fallback_eval=b3_eval,
+            generations_completed=gens_completed,
+            total_candidates_evaluated=total_evals,
+            total_candidates_passed=total_passed,
+            total_static_rejected=total_static_rejected,
+            elapsed_s=time.perf_counter() - t_start,
+            seed=seed,
+            refusal_reason=None,
+            history=history,
+        )
+    elif seed_eval.passed:
+        res = EvolutionResult(
+            outcome="evolved_compliant",
+            passed=True,
+            model=eff_model,
+            thinking_level=eff_thinking,
+            best_code=base_code,
+            best_eval=seed_eval,
+            seed_eval=seed_eval,
+            b3_eval=b3_eval,
             fallback_eval=None,
             generations_completed=gens_completed,
             total_candidates_evaluated=total_evals,
@@ -690,6 +808,7 @@ def evolve_controller(
                 best_code=CONSERVATIVE_FLOOR_CODE,
                 best_eval=fallback_eval,
                 seed_eval=seed_eval,
+                b3_eval=b3_eval,
                 fallback_eval=fallback_eval,
                 generations_completed=gens_completed,
                 total_candidates_evaluated=total_evals + 1,
@@ -707,8 +826,8 @@ def evolve_controller(
                 if f.get("measured") is not None and f.get("limit") is not None
             )
             reason = (
-                f"Refused: no evolved controller passed within {budget_s:.0f}s budget and conservative "
-                f"fixed-floor fallback also failed ({fail_summary or fallback_eval.error})."
+                f"Refused: no evolved controller passed within {budget_s:.0f}s budget, B3 failed, "
+                f"and conservative fixed-floor fallback also failed ({fail_summary or fallback_eval.error})."
             )
             res = EvolutionResult(
                 outcome="refused",
@@ -718,6 +837,7 @@ def evolve_controller(
                 best_code=None,
                 best_eval=best_eval,
                 seed_eval=seed_eval,
+                b3_eval=b3_eval,
                 fallback_eval=fallback_eval,
                 generations_completed=gens_completed,
                 total_candidates_evaluated=total_evals + 1,

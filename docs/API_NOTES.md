@@ -165,6 +165,8 @@ agent = client.agents.create(
 - Pass `{"type": "function", "name": "...", "description": "...", "parameters": {...}}` in `tools`.
 - When `interaction.status == "requires_action"`, inspect `interaction.steps` for `step.type == "function_call"` without a matching `function_result` (`call_id`).
 - Return result in next turn with `previous_interaction_id=interaction.id`, `environment=interaction.environment_id`, and `input=[{"type": "function_result", "name": fc.name, "call_id": fc.id, "result": {...}}]`. Stateful mode only.
+- First turn with a saved agent requires `environment="remote"` (or a prior `environment_id`). Omitting it returns `400 Missing required field 'environment'`.
+- Follow-up turns: `tools` (and `system_instruction` / `generation_config`) are interaction-scoped and **must match** the interaction referenced by `previous_interaction_id`, or the API returns `400 tools must match...`.
 - **No native subagent / agent-to-agent delegation**: Official `https://aistudio.google.com/docs/custom-agents.md` explicitly states under *Limitations*: `"No subagent nesting: Subagent delegation is not yet supported."` Therefore, multi-agent communication (`gridsafe-engineer` <-> `gridsafe-hardener`) is bridged via a custom function `message_agent`: our backend handles the `function_call`, invokes the target saved agent via `client.interactions.create` (maintaining each agent's stateful `previous_interaction_id` and `environment`), independently verifies controllers/counterexamples with the deterministic checker, logs structured JSON messages to `eval/agent_threads/`, and returns the reply as `function_result`. No API key is placed inside any sandbox.
 
 ### Hooks (`.agents/hooks.json`)

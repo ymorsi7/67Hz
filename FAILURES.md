@@ -147,5 +147,31 @@ Tracks real failure modes discovered during development, live runs on real utili
 - **What changed:** Added explicit `entity` field to `Constraint` and Reader schema, restricted `detect_conflicts()` to within-entity comparisons, added cross-page deduplication for matching `(entity, type, value, unit, window, band)`, parsed window ranges conservatively to the upper bound (`4–6 s -> 6.0 s` + assumption), set `DEFAULT_SUBSYNCHRONOUS_BAND_HZ = (5.0, 55.0)` for unspecified sub-synchronous rules (recorded on constraint + certificate), and added `--checkable-only` + `[CONFLICT]` stripping to `scripts/label.py`.
 - **Human gold evaluation (all 6 PDFs now labeled in `eval/gold/`):** Against the pre-Phase-3b cached extractions, `Recall = 1.000`, `Precision = 0.679`, `Hallucination = 0.321`, `Abstention = 0.034` (`2601.12686v1`, `ESIG`, and `PSEG-LIPA` all `P=1.0, R=1.0`; `8` of `9` FPs come from MISO p. 6 comparative-utility entries and pre-dedup CAISO p. 25 LIPA duplicates, validating the Step 7 entity & cross-page dedup fixes).
 
+---
+
+## F13. Energy-Ledger Gate Replaced With Relative Residual (`< 1e-12`) & Accumulated Offset Precision Fix
+
+- **Category:** Physics verification / floating-point accuracy (`sim/plant.py`, `eval/run_eval.py`, `tests/test_phase1_physics.py`)
+- **Example:** In Phase 3b, lengthening fast traces to `20 s` (`10,000` steps at `dt = 0.002 s`) and adding `30 min` slow traces (`3,600` steps) caused the absolute energy residual `|E_grid - (E_final - E_init) - (E_gpu + E_batt_loss)|` to reach `1.181e-12 MWh` (`2.093e-12` relative on `abrupt_checkpoint_drop`), prompting a temporary loosening of the absolute gate from `1e-12 MWh` to `1e-9 MWh`. Root cause: adding tiny per-step battery increments (`~5e-6 MWh`) directly onto the `10.0 MWh` initial stored-energy baseline `10,000` times accumulated `~1e-12 MWh` of IEEE-754 float64 base-offset rounding, while an absolute `1e-9 MWh` threshold scales poorly across short (`0.1 s`) vs long (`30 min`) traces.
+- **What changed:**
+  - Replaced the absolute `1e-9 MWh` gate in `eval/run_eval.py`, `sim/plant.py`, `scripts/generate_validation_doc.py`, and `tests/test_phase1_physics.py` with a scale-invariant **relative gate**: `energy_balance_rel_error = energy_balance_error_mwh / total_energy_throughput_mwh < 1e-12` (`ENERGY_LEDGER_REL_TOL = 1e-12`), where `total_energy_throughput_mwh = max(E_gpu + E_batt_throughput + E_batt_loss, |E_grid|, 1e-12)`.
+  - Accumulated stored-energy delta `e_delta` directly in `sim/plant.py` (`e_curr = e_init + e_delta`) to eliminate the `10 MWh` float64 offset cancellation while keeping the independent array-level `soc[-1] * capacity_mwh` check and permanent non-vacuity mutation test (`test_energy_ledger_relative_gate_is_not_vacuous_under_mutation`).
+- **Before vs After (all 7 fast + slow presets, active-battery probe + live mutation test):**
+  - Gate: loosened absolute `< 1e-9 MWh` -> strict relative `< 1e-12` (`ENERGY_LEDGER_REL_TOL`).
+  - Max measured residual across fast (`20 s`) + slow (`30 min`) presets: **`1.181e-12 MWh` abs (`2.093e-12` rel)** -> **`3.553e-14 MWh` abs (`6.727e-15` rel)** (`~30x` float64 machine epsilon).
+  - Live mutation check (dropping `/ eta_d` in `sim/plant.py` discharge step): immediately failed `test_energy_conservation_lossless_and_lossy` with relative residual **`5.266e-3`** (`> 5e9` times the `1e-12` gate), proving non-vacuity.
+
+---
+
+## F14. Managed Hardener Full Red-Team Turns Hit Client Read Timeouts
+
+- **Category:** Managed agent latency / Interactions API (`agents/bridge.py`, Phase 4)
+- **Example:** Asking `gridsafe-hardener` (`gemini-4-carbon` Antigravity) to fully attack a LIPA controller with code_execution + full controller source timed out at the client (`APITimeoutError` / `httpx.ReadTimeout`) after ~180 s. A stock ping / ACK-only hardener turn completes in **`~10.1 s`**. The full `message_agent` engineer→hardener→engineer bridge (ACK-only) completed in **`26.7 s`** (engineer `requires_action` 10.1 s + hardener 12.5 s + continue 4.1 s).
+- **What changed:** Truncate controller source on the wire, instruct hardener to propose short workload JSON instead of long sims, catch timeouts and fall back to host Rand20 verification, and keep `enable_agents` as a feature flag. LIPA F11 demo packages the host-verified Rand20 break through the hardener Interactions API, then engineer-fixes via B3-seeded evolve with backend re-check.
+- **Before vs After:**
+  - Full red-team hardener turn: **timeout / no reply** -> ACK / structured package turns **`10–24 s`**.
+  - LIPA F11 (`eval/agent_threads/lipa_f11_20261121T182024Z_summary.json`): hardener break package **`24.0 s`**, engineer fix `fallback_b3` **`25.3 s`**, backend confirms presets **PASS**, Rand20 **PASS**, counterexample no longer breaks; original controller still breaks (non-vacuous).
+
+
 
 

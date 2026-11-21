@@ -11,6 +11,7 @@ import pytest
 from rules.checker import check_compliance
 from rules.schema import Constraint, RuleSet
 from sim.plant import (
+    ENERGY_LEDGER_REL_TOL,
     BatteryConfig,
     PlantConfig,
     fixed_floor_controller,
@@ -18,7 +19,7 @@ from sim.plant import (
     simulate_plant,
 )
 from sim.shaft import create_illustrative_shaft, load_shaft_model
-from workload.synth import WorkloadParams, generate_workload, preset_workloads
+from workload.synth import WorkloadParams, generate_workload, preset_workloads, slow_preset_workloads
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -108,7 +109,7 @@ def test_energy_conservation_lossless_and_lossy() -> None:
     )
     res_lossless = simulate_plant(trace, controller=active_controller, plant_config=lossless_cfg)
     assert res_lossless.metrics.energy_batt_loss_mwh == pytest.approx(0.0, abs=1e-12)
-    assert res_lossless.metrics.energy_balance_error_mwh < 1e-12
+    assert res_lossless.metrics.energy_balance_rel_error < ENERGY_LEDGER_REL_TOL
     assert res_lossless.metrics.energy_dummy_mwh > 0.0
     assert res_lossless.metrics.energy_curtailed_mwh > 0.0
     # Verify GPU ledger: E_gpu == E_raw - E_curt + E_dummy
@@ -116,14 +117,14 @@ def test_energy_conservation_lossless_and_lossy() -> None:
         res_lossless.metrics.energy_raw_mwh
         - res_lossless.metrics.energy_curtailed_mwh
         + res_lossless.metrics.energy_dummy_mwh,
-        abs=1e-12,
+        rel=1e-12,
     )
     # Physical bounds strictly respected
     assert np.all(res_lossless.soc >= 0.1 - 1e-12)
     assert np.all(res_lossless.soc <= 0.9 + 1e-12)
     assert np.all(np.abs(res_lossless.p_batt_mw) <= 30.0 + 1e-12)
 
-    # 2. Lossy battery (90% round-trip efficiency)
+    # 2. Lossy battery (90% round-trip efficiency) on BOTH fast (20 s) and slow (30 min) traces
     lossy_cfg = PlantConfig(
         battery=BatteryConfig(
             max_power_mw=30.0,
@@ -133,28 +134,70 @@ def test_energy_conservation_lossless_and_lossy() -> None:
             soc_max=0.9,
         )
     )
-    res_lossy = simulate_plant(trace, controller=active_controller, plant_config=lossy_cfg)
-    assert res_lossy.metrics.energy_batt_loss_mwh > 0.0
-    assert res_lossy.metrics.energy_balance_error_mwh < 1e-12
-    # Independent check directly from output arrays and BatteryConfig efficiencies (non-vacuous):
+    for label, tr, cfg_run in [
+        ("fast_20s", trace, lossy_cfg),
+        ("slow_30m", generate_workload(slow_preset_workloads(100.0)["slow_training_run"]), PlantConfig()),
+    ]:
+        res_lossy = simulate_plant(tr, controller=active_controller, plant_config=cfg_run)
+        assert res_lossy.metrics.energy_batt_loss_mwh > 0.0
+        assert res_lossy.metrics.energy_balance_rel_error < ENERGY_LEDGER_REL_TOL, label
+        # Independent relative ledger check directly from output arrays and BatteryConfig efficiencies:
+        dt_h = tr.dt_s / 3600.0
+        dis_mwh = float(np.sum(np.maximum(res_lossy.p_batt_mw, 0.0)) * dt_h)
+        chg_mwh = float(np.sum(np.maximum(-res_lossy.p_batt_mw, 0.0)) * dt_h)
+        expected_loss = dis_mwh * (1.0 / cfg_run.battery.eta_discharge - 1.0) + chg_mwh * (
+            1.0 - cfg_run.battery.eta_charge
+        )
+        e_init = cfg_run.battery.initial_soc * cfg_run.battery.capacity_mwh
+        e_final = float(res_lossy.soc[-1]) * cfg_run.battery.capacity_mwh
+        e_gpu = float(np.sum(res_lossy.p_gpu_mw) * dt_h)
+        e_grid = float(np.sum(res_lossy.p_grid_mw) * dt_h)
+        throughput = max(e_gpu + dis_mwh + chg_mwh + expected_loss, abs(e_grid), 1e-12)
+        indep_rel_residual = abs(e_grid + (e_init - e_final) - (e_gpu + expected_loss)) / throughput
+        assert indep_rel_residual < ENERGY_LEDGER_REL_TOL, label
+        assert res_lossy.metrics.battery_wear_proxy > 0.0
+        assert res_lossy.metrics.battery_efc > 0.0
+        assert np.all(res_lossy.soc >= 0.1 - 1e-12)
+        assert np.all(res_lossy.soc <= 0.9 + 1e-12)
+
+
+def test_energy_ledger_relative_gate_is_not_vacuous_under_mutation() -> None:
+    """Mutation test: breaking discharge efficiency (dropping 1/eta_d) MUST fail the relative gate."""
+    trace = generate_workload(preset_workloads(100.0)["standard_training"])
+
+    def active_controller(obs: dict) -> dict[str, float]:
+        return {
+            "gpu_floor_mw": 45.0,
+            "gpu_cap_mw": 92.0,
+            "battery_setpoint_mw": 0.9 * (obs["p_raw_mw"] - 75.0),
+        }
+
+    cfg = PlantConfig(
+        battery=BatteryConfig(
+            max_power_mw=30.0,
+            capacity_mwh=0.5,
+            initial_soc=0.5,
+            soc_min=0.1,
+            soc_max=0.9,
+        )
+    )
+    res = simulate_plant(trace, controller=active_controller, plant_config=cfg)
+    assert res.metrics.energy_balance_rel_error < ENERGY_LEDGER_REL_TOL
+
+    # Mutate stored-energy accounting by dropping / eta_discharge on discharge steps:
     dt_h = trace.dt_s / 3600.0
-    dis_mwh = float(np.sum(np.maximum(res_lossy.p_batt_mw, 0.0)) * dt_h)
-    chg_mwh = float(np.sum(np.maximum(-res_lossy.p_batt_mw, 0.0)) * dt_h)
-    expected_loss = dis_mwh * (1.0 / lossy_cfg.battery.eta_discharge - 1.0) + chg_mwh * (
-        1.0 - lossy_cfg.battery.eta_charge
-    )
-    e_init = lossy_cfg.battery.initial_soc * lossy_cfg.battery.capacity_mwh
-    e_final = float(res_lossy.soc[-1]) * lossy_cfg.battery.capacity_mwh
-    indep_residual = abs(
-        float(np.sum(res_lossy.p_grid_mw) * dt_h)
-        + (e_init - e_final)
-        - (float(np.sum(res_lossy.p_gpu_mw) * dt_h) + expected_loss)
-    )
-    assert indep_residual < 1e-9
-    assert res_lossy.metrics.battery_wear_proxy > 0.0
-    assert res_lossy.metrics.battery_efc > 0.0
-    assert np.all(res_lossy.soc >= 0.1 - 1e-12)
-    assert np.all(res_lossy.soc <= 0.9 + 1e-12)
+    dis_mwh = float(np.sum(np.maximum(res.p_batt_mw, 0.0)) * dt_h)
+    chg_mwh = float(np.sum(np.maximum(-res.p_batt_mw, 0.0)) * dt_h)
+    assert dis_mwh > 0.0
+    expected_loss = dis_mwh * (1.0 / cfg.battery.eta_discharge - 1.0) + chg_mwh * (1.0 - cfg.battery.eta_charge)
+    e_init = cfg.battery.initial_soc * cfg.battery.capacity_mwh
+    e_final_mutated = e_init - dis_mwh + chg_mwh * cfg.battery.eta_charge  # Bug: missing / eta_discharge
+    e_gpu = float(np.sum(res.p_gpu_mw) * dt_h)
+    e_grid = float(np.sum(res.p_grid_mw) * dt_h)
+    throughput = max(e_gpu + dis_mwh + chg_mwh + expected_loss, abs(e_grid), 1e-12)
+    mutated_rel_err = abs(e_grid + (e_init - e_final_mutated) - (e_gpu + expected_loss)) / throughput
+    assert mutated_rel_err > 1e-4, f"Mutation test became vacuous: mutated_rel_err={mutated_rel_err}"
+    assert mutated_rel_err > ENERGY_LEDGER_REL_TOL * 1e7
 
 
 def test_determinism_end_to_end() -> None:

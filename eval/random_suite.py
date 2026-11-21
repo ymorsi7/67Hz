@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from rules.checker import check_trace
+from rules.schema import RuleSet
 from workload.synth import WorkloadParams
 
 # Documented sampling ranges (justified by AI training cluster telemetry & IEEE FBM physics):
@@ -138,10 +140,16 @@ def sample_random_suite(
     cluster_mw: float = 100.0,
     family: str = "both",
 ) -> dict[str, WorkloadParams]:
-    """Sample N deterministic unseen workloads from documented parameter ranges."""
+    """Sample N deterministic unseen workloads from documented parameter ranges.
+
+    Uses independent deterministic RNG streams for fast and slow families derived
+    from `seed`, so single-family suites (n=20 fast or n=20 slow) are exact
+    supersets of the corresponding 10-workload halves in dual-family suites.
+    """
     if n < 1:
         raise ValueError("n must be >= 1")
-    rng = np.random.default_rng(int(seed))
+    rng_fast = np.random.default_rng([int(seed), 1])
+    rng_slow = np.random.default_rng([int(seed), 2])
     out: dict[str, WorkloadParams] = {}
 
     if family == "fast":
@@ -155,10 +163,48 @@ def sample_random_suite(
         raise ValueError(f"Unsupported family: {family!r} (expected 'fast', 'slow', or 'both')")
 
     for i in range(n_fast):
-        out[f"rand_fast_{i:02d}"] = _sample_fast_one(rng, i, cluster_mw=cluster_mw)
+        out[f"rand_fast_{i:02d}"] = _sample_fast_one(rng_fast, i, cluster_mw=cluster_mw)
     for j in range(n_slow):
-        out[f"rand_slow_{j:02d}"] = _sample_slow_one(rng, j, cluster_mw=cluster_mw)
+        out[f"rand_slow_{j:02d}"] = _sample_slow_one(rng_slow, j, cluster_mw=cluster_mw)
     return out
+
+
+def evaluable_families_for_ruleset(ruleset: RuleSet) -> list[str]:
+    """Return which workload families ('fast', 'slow') have >= 1 evaluable rule for `ruleset`."""
+    evaluable: list[str] = []
+    for fam in ("fast", "slow"):
+        r = PARAMETER_RANGES[fam]
+        dur = float(r["duration_s"])
+        dt = float(r["dt_s"])
+        n_pts = max(2, int(round(dur / dt)))
+        probe = np.full(n_pts, 0.15 * ruleset.rated_mw, dtype=np.float64)
+        rep = check_trace(probe, dt_s=dt, ruleset=ruleset, strict_review=False, initial_power_mw=0.15 * ruleset.rated_mw)
+        if rep.evaluable_count > 0:
+            evaluable.append(fam)
+    return evaluable
+
+
+def sample_random_suite_for_ruleset(
+    ruleset: RuleSet,
+    *,
+    n: int = 20,
+    seed: int = 20261121,
+    cluster_mw: float | None = None,
+) -> dict[str, WorkloadParams]:
+    """Sample N deterministic unseen workloads guaranteed to be evaluable for `ruleset`.
+
+    - Dual-family rulesets (both fast and slow evaluable) get n//2 fast + (n - n//2) slow.
+    - Single-family rulesets (fast-only or slow-only) get all N workloads from that family.
+    """
+    mw = float(cluster_mw if cluster_mw is not None else ruleset.rated_mw)
+    fams = evaluable_families_for_ruleset(ruleset)
+    if fams == ["fast"]:
+        fam_mode = "fast"
+    elif fams == ["slow"]:
+        fam_mode = "slow"
+    else:
+        fam_mode = "both"
+    return sample_random_suite(n=n, seed=seed, cluster_mw=mw, family=fam_mode)
 
 
 def main() -> int:

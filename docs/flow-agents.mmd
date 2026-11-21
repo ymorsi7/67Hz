@@ -1,0 +1,12 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Helvetica Neue, Arial, sans-serif", "fontSize": "15px", "primaryTextColor": "#14201A", "lineColor": "#2A2A2A", "textColor": "#14201A"}}}%%
+flowchart LR
+  classDef ai fill:#DCEEE4,stroke:#1F3D2F,stroke-width:2px,color:#14201A
+  classDef code fill:#F0EDE6,stroke:#5C5346,stroke-width:2px,color:#14201A
+
+  A["1. Engineer proposes<br/>a power controller<br/><i>gemini-4-hydrogen</i>"]:::ai
+  B["2. Our bridge carries<br/>the message over<br/><i>plain Python</i>"]:::code
+  C["3. Hardener tries<br/>to break it<br/><i>gemini-4-carbon</i>"]:::ai
+  D["4. Checker asks:<br/>was that break real?<br/><i>plain Python</i>"]:::code
+  E["5. Engineer fixes;<br/>checker grades again<br/><i>Hydrogen + Python</i>"]:::ai
+
+  A --> B --> C --> D --> E

@@ -1,0 +1,12 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Helvetica Neue, Arial, sans-serif", "fontSize": "15px", "primaryTextColor": "#14201A", "lineColor": "#2A2A2A", "textColor": "#14201A"}}}%%
+flowchart LR
+  classDef ai fill:#DCEEE4,stroke:#1F3D2F,stroke-width:2px,color:#14201A
+  classDef code fill:#F0EDE6,stroke:#5C5346,stroke-width:2px,color:#14201A
+
+  A["1. Read the rulebook<br/><b>gemini-4-neon</b><br/>PDF / photo → typed limits"]:::ai
+  B["2. Verify each limit<br/><b>gemini-decision-1</b><br/>yes / no / needs a human"]:::ai
+  C["3. Design controller<br/><b>gemini-4-hydrogen</b><br/>Engineer + evolve loop"]:::ai
+  D["4. Attack it<br/><b>gemini-4-carbon</b><br/>Hardener red-team"]:::ai
+  E["5. Grade + certify<br/><b>plain Python</b><br/>checker is never AI"]:::code
+
+  A --> B --> C --> D --> E

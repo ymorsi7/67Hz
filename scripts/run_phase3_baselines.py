@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from eval.random_suite import sample_random_suite
+from eval.random_suite import sample_random_suite_for_ruleset
 from evolve.baselines import (
     resolve_pdf_path,
     run_b0_baseline,
@@ -115,8 +115,9 @@ def _aggregate_seed_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
 def _run_one_profile(
     prof: UtilityProfile,
     workloads: dict[str, Any],
-    random_workloads: dict[str, Any],
     *,
+    random_seed: int,
+    random_n: int,
     seeds: tuple[int, ...],
     population_size: int,
     budget_s: float,
@@ -124,9 +125,10 @@ def _run_one_profile(
 ) -> dict[str, Any]:
     tag = f"[{prof.split}:{prof.profile_id}]"
     t_prof0 = time.perf_counter()
+    random_workloads = sample_random_suite_for_ruleset(prof.ruleset, n=random_n, seed=random_seed, cluster_mw=100.0)
     _log(
         f"{tag} Starting ({prof.utility}, {len(prof.ruleset.constraints)} rule(s), "
-        f"seeds={list(seeds)}, workloads={len(workloads)})..."
+        f"seeds={list(seeds)}, workloads={len(workloads)}, rand_eval={len(random_workloads)})..."
     )
 
     noop = run_uncontrolled_baseline(prof.ruleset, workloads)
@@ -331,10 +333,11 @@ def run_benchmark(
     max_parallel_profiles: int = 3,
     random_seed: int = 20261121,
     random_n: int = 20,
+    split: str = "dev",
     profiles_filter: set[str] | None = None,
     new_only: bool = False,
 ) -> dict[str, Any]:
-    profiles = load_utility_profiles(rated_mw=100.0)
+    profiles = load_utility_profiles(rated_mw=100.0, split=None if split == "all" else split)
     if profiles_filter:
         profiles = [p for p in profiles if p.profile_id in profiles_filter]
 
@@ -345,7 +348,6 @@ def run_benchmark(
             existing_by_id[rec["profile"]["profile_id"]] = rec
 
     workloads = all_preset_workloads(100.0)
-    random_workloads = sample_random_suite(n=random_n, seed=random_seed, cluster_mw=100.0)
     by_id: dict[str, dict[str, Any]] = dict(existing_by_id)
 
     to_run = [p for p in profiles if p.profile_id not in by_id]
@@ -356,7 +358,8 @@ def run_benchmark(
                     _run_one_profile,
                     prof,
                     workloads,
-                    random_workloads,
+                    random_seed=random_seed,
+                    random_n=random_n,
                     seeds=seeds,
                     population_size=population_size,
                     budget_s=budget_s,
@@ -368,7 +371,8 @@ def run_benchmark(
                 pid = futs[fut]
                 by_id[pid] = fut.result()
 
-    records = [by_id[p.profile_id] for p in profiles if p.profile_id in by_id]
+    all_ordered = load_utility_profiles(rated_mw=100.0)
+    records = [by_id[p.profile_id] for p in all_ordered if p.profile_id in by_id]
 
     payload = {
         "schema_version": "phase3b",
@@ -392,6 +396,7 @@ def run_benchmark(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Phase 3b multi-seed dual-family benchmark.")
     parser.add_argument("--new-only", action="store_true")
+    parser.add_argument("--split", choices=["dev", "all"], default="dev", help="Default 'dev'; held_out only for final eval")
     parser.add_argument("--seeds", type=int, nargs="+", default=list(DEFAULT_SEEDS))
     parser.add_argument("--profiles", type=str, nargs="*", default=None)
     parser.add_argument("--max-parallel-profiles", type=int, default=3)
@@ -403,6 +408,7 @@ if __name__ == "__main__":
         max_parallel_profiles=args.max_parallel_profiles,
         random_seed=args.random_seed,
         random_n=args.random_n,
+        split=args.split,
         profiles_filter=set(args.profiles) if args.profiles else None,
         new_only=args.new_only,
     )

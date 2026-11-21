@@ -1,0 +1,1 @@
+{"session_id": "b2272a326945", "ts": 1795284714.99164, "params": {"rhythm": 0.3, "depth": 0.9, "cluster_mw": 200.0}, "passed": true, "status": "pass", "worst_margin_pct": 33.79999999945085, "elapsed_ms": 4.3, "label": "live judge attack (simulated)"}

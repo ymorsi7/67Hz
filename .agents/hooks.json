@@ -1,0 +1,13 @@
+{
+  "hooks": [
+    {
+      "matcher": "write_to_file|replace_file_content",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 -c \"import json,sys; d=json.load(sys.stdin); path=(d.get('tool_call') or {}).get('args',{}).get('path',''); deny=any(x in path for x in ['.env','GEMINI_API_KEY','credentials']); print(json.dumps({'decision':'deny','reason':'secrets blocked'}) if deny else json.dumps({'decision':'allow'}))\""
+        }
+      ]
+    }
+  ]
+}

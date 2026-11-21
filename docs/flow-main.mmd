@@ -1,0 +1,20 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Helvetica Neue, Arial, sans-serif", "fontSize": "14px", "primaryTextColor": "#14201A", "lineColor": "#2A2A2A", "textColor": "#14201A"}}}%%
+flowchart LR
+  classDef ai fill:#DCEEE4,stroke:#1F3D2F,stroke-width:2px,color:#14201A
+  classDef code fill:#F0EDE6,stroke:#5C5346,stroke-width:2px,color:#14201A
+  classDef decide fill:#FFF8E7,stroke:#8A6D1B,stroke-width:2px,color:#14201A
+
+  A["Judge drops<br/>PDF or photo<br/><i>plain Python</i>"]:::code
+  B["Read limits<br/><i>gemini-4-neon</i>"]:::ai
+  C["Check each limit<br/>against the page<br/><i>gemini-decision-1</i>"]:::ai
+  D{"Good enough<br/>to design?<br/><i>Python gate</i>"}:::decide
+  R["Stop — ask a human<br/><i>plain Python</i>"]:::code
+  E["Evolve a controller<br/><i>gemini-4-hydrogen</i>"]:::ai
+  F["Must pass checker<br/><i>plain Python, no AI</i>"]:::code
+  G["If evolve fails:<br/>tuned filter → safe floor<br/>→ refuse"]:::code
+  H["Run plant + turbine shaft<br/><i>plain Python</i>"]:::code
+  I["Certificate<br/><i>plain Python</i>"]:::code
+
+  A --> B --> C --> D
+  D -->|no| R
+  D -->|yes| E --> F --> G --> H --> I

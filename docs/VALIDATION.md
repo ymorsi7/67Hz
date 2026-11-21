@@ -1,6 +1,6 @@
 # GridSafe Physics & Checker Validation
 
-Generated from `scripts/generate_validation_doc.py` on 2026-11-21 16:37 UTC.
+Generated from `scripts/generate_validation_doc.py` on 2026-11-21 17:58 UTC.
 All numbers below come directly from deterministic runs of `sim/shaft.py`, `sim/plant.py`, `workload/synth.py`, and `rules/checker.py` (pure Python + `numpy`, no `scipy`).
 
 ## 1. IEEE First Benchmark Model Torsional Mode Validation
@@ -27,19 +27,22 @@ Source parameters: `config/fbm.yaml` (IEEE SSR Task Force, *First benchmark mode
 ## 2. Plant Simulation, Energy Conservation & Latency Gates
 
 - Evaluation latency gate (`< 500 ms` per full synth + time-stepped plant + frequency-domain shaft + checker evaluation):
-  - Mean: `14.5 ms`
-  - Max: `25.3 ms` -> **PASS**
-- Energy conservation ledger residual (`|E_grid - (E_final - E_init) - (E_gpu + E_batt_loss)|`):
-  - Max residual across all presets: `7.985e-13 MWh` (gate `< 1e-12 MWh`) -> **PASS**
+  - Mean: `19.5 ms`
+  - Max: `42.2 ms` -> **PASS**
+- Energy conservation ledger relative residual (`|E_grid - (E_final - E_init) - (E_gpu + E_batt_loss)| / E_throughput`):
+  - Max relative residual across all fast (20 s) + slow (30 min) presets: `6.727e-15` (gate `< 1e-12`; abs max `3.553e-14 MWh`) -> **PASS**
 
-### Preset Workload Benchmarks (100 MW cluster, 10 s trace, `dt = 2 ms`, 5,000 steps)
+### Preset Workload Benchmarks (100 MW cluster, fast 20 s @ 2 ms & slow 30 min @ 0.5 s)
 
 | Preset | Eval Time (ms) | Uncontrolled Peak Torque (pu) | B1 (90% Floor) Peak Torque (pu) | B1 Energy Overhead (%) |
 | --- | ---: | ---: | ---: | ---: |
-| `standard_training` | 25.3 | 0.0921 | 0.0206 | 20.6% |
-| `ssr_mode1_attack` | 11.4 | 1.6460 | 0.3213 | 29.5% |
-| `ssr_mode2_attack` | 11.6 | 0.1203 | 0.0246 | 30.1% |
-| `abrupt_checkpoint_drop` | 9.9 | 0.0984 | 0.0159 | 38.3% |
+| `standard_training` | 42.2 | 0.0866 | 0.0177 | 15.9% |
+| `ssr_mode1_attack` | 22.2 | 1.6504 | 0.3220 | 32.0% |
+| `ssr_mode2_attack` | 23.5 | 0.1509 | 0.0258 | 32.7% |
+| `abrupt_checkpoint_drop` | 19.7 | 0.0904 | 0.0182 | 29.9% |
+| `slow_training_run` | 9.5 | 0.0458 | 0.0039 | 30.2% |
+| `slow_heavy_checkpoints` | 8.7 | 0.0362 | 0.0049 | 54.3% |
+| `slow_step_job_cycle` | 10.8 | 0.0407 | 0.0040 | 43.3% |
 
 ## 3. Modeling Simplifications & Assumptions (Disclosed)
 
