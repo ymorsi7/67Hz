@@ -1,0 +1,27 @@
+{
+  "doc_id": "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296",
+  "source_file": "specs/20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296.pdf",
+  "split": "held_out",
+  "rated_mw": 100.0,
+  "labeled_by": "human",
+  "labeled_at_utc": "2026-11-21T17:33:48.541993+00:00",
+  "notes": "Labeled manually via scripts/label.py",
+  "constraints": [
+    {
+      "id": "ramp_rate_0",
+      "constraint_type": "ramp_rate",
+      "value": 30.0,
+      "unit": "MW/min",
+      "page": 2,
+      "snippet": "The \u00b130 MW/min ramp limit (up and down) will be assessed every 1 minute across the aggregate net demand, inclusive of eligible generation, across a Computational Load\u2019s applicable PoWs",
+      "checkable": true,
+      "entity": "",
+      "window_s": 60.0,
+      "freq_min_hz": null,
+      "freq_max_hz": null,
+      "source_section": "MISO - Key Takeaways",
+      "notes": "Applies up and down to Computational Loads; assessed every 1 minute across aggregate net demand including eligible generation across applicable Points of Withdrawal.",
+      "assumptions": []
+    }
+  ]
+}

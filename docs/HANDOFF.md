@@ -4,62 +4,67 @@ Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (public repo 
 
 ## 1. Hard Rules & User Workflow (Non-Negotiable)
 - **User makes ALL commits and pushes (`AGENTS.md`):** NEVER run `git commit` or `git push`. End every completed phase with a one-line commit message for the user and wait for `"next phase"`.
-- **Never invent results or gold labels:** Every metric, table, and claim must come from an executed run in this repo. Never write `eval/gold/*.json` entries yourself (user creates them via `scripts/label.py` with `"labeled_by": "human"`).
+- **Never invent results or gold labels:** Every metric, table, and claim must come from an executed run in this repo. Never write `eval/gold/*.json` entries yourself (user creates them via `scripts/label.py --checkable-only` with `"labeled_by": "human"`).
 - **Never leak secrets into sandboxes:** Keep `.env` (`GEMINI_API_KEY`) strictly on the host backend. Never pass API keys into `evolve/_runner.py` or Antigravity remote sandboxes.
 - **Sandbox package boundary:** `workload/`, `sim/`, `rules/`, `controllers/`, and `evolve/` must remain pure Python + `numpy` only (no `scipy`, `pymupdf`, `fitz`, or `pydantic`; enforced by AST unit tests).
 
 ## 2. Phase Status
 - **Step 0 (Done):** Live API probes (`docs/API_NOTES.md`), FastAPI+SSE backend (`server/app.py`), Vite 8 + React 19 + TS 7 + Tailwind v4 + shadcn/ui frontend (`frontend/`), `config/models.yaml`, `Makefile`, `scripts/demo_check.py`.
-- **Phase 1 (Done + checked):** `workload/synth.py`, IEEE 1977 FBM 6-mass shaft (`sim/shaft.py`, max mode error `0.0143% <= 2%`, all 5 strain-energy dominant sections distinct: `LPA-LPB`, `GEN-EXC`, `IP-LPA`, `LPB-GEN`, `HP-IP`), energy-conserving plant (`sim/plant.py`, non-vacuous residual `7.985e-13 MWh`, mean eval `~14 ms < 500 ms`), pure-Python checker (`rules/`), `docs/VALIDATION.md`.
-- **Phase 2 (Done):** `reader/extract.py` (`gemini-4-neon`, native PDF slicing + Pydantic schema), `reader/verify.py` (`gemini-decision-1`, 1 batched call per cited page + parallel `page_readable` gate, 0 output tokens), `eval/degrade.py`, `eval/extraction.py`, `eval/gold/TEMPLATE.json`, `scripts/label.py`, `scripts/fetch_specs.py`, `FAILURES.md`. All 6 PDFs in `specs/` processed & cached (`dev`: CAISO, ESIG, PSEG-LIPA; `held_out`: arXiv 2601.12686, IESO, MISO LLWG).
-- **Phase 3 (Done):** `controllers/seed.py` (38 lines), `evolve/sandbox.py` + `evolve/_runner.py` (AST bans + isolated subprocess + timeout), `evolve/loop.py` (6 parallel `gemini-4-hydrogen` workers/gen, 75 s hard budget, guaranteed fallback/refusal), `evolve/baselines.py` (Noop, B1 90% floor, B0 single-shot Neon), `rules/profiles.py` (7 `dev` + 4 `held_out` utility profiles). Live benchmark cached in `eval/cache/phase3_results.json`: GridSafe **11/11 PASS** (2.5–3.7% OH, 0.0% TP loss, 26–55 s), beating B1 (0/11 PASS, 29.6% OH) and B0 (10/11 PASS, 15.9–21.9% TP loss; **B0 failed 0/4 on held-out `ieso_held_out`**). `51 passed` in `make test`.
+- **Phase 1 (Done + checked):** `workload/synth.py`, IEEE 1977 FBM 6-mass shaft (`sim/shaft.py`, max mode error `0.0143% <= 2%`, all 5 strain-energy dominant sections distinct: `LPA-LPB`, `GEN-EXC`, `IP-LPA`, `LPB-GEN`, `HP-IP`), energy-conserving plant (`sim/plant.py`, max residual `1.181e-12 MWh` across fast 20 s & slow 30 min runs, mean eval `18.6 ms`, max `36.8 ms < 500 ms`), pure-Python checker (`rules/`), `docs/VALIDATION.md`.
+- **Phase 2 (Done):** `reader/extract.py` (`gemini-4-neon`, native PDF slicing + Pydantic schema + `entity` + window ranges + cross-page dedup + entity-scoped conflicts), `reader/verify.py` (`gemini-decision-1`, 1 batched call per cited page + parallel `page_readable` gate, 0 output tokens), `eval/degrade.py`, `eval/extraction.py`, `eval/gold/` (**all 6 PDFs now human-labeled**; `R=1.000`, `P=0.679` on pre-Phase-3b caches), `scripts/label.py` (with `--checkable-only` and `[CONFLICT]` stripping), `scripts/fetch_specs.py`, `FAILURES.md`.
+- **Phase 3 + Phase 3b (Done — Evaluation Validity Fixes Complete):**
+  - **Window validity & dual scenario families:** Traces `< 2x` rule window (or bands above Nyquist / `< 2` cycles) return `status="not_evaluable"` (`passed=None`) — never pass or fail. Unwindowed per-minute ramp rates assume a `60 s` rolling window (recorded on `Constraint.assumptions` & certificates). Added **slow scenario family** (`30 min = 1800 s @ 0.5 s`, 3 workloads: idle, job start, checkpoints, job stop) and lengthened **fast family** to `20 s @ 0.002 s` (`2x` largest `10 s` fast window). Eval speed: `mean 18.6 ms`, `max 36.8 ms` fast / `10.9 ms` slow (`<< 500 ms`).
+  - **Honest idle initial condition:** Every trace starts at facility idle (`idle_mw`), prepended by `rules/checker.py` for `t < 0` so `t = 0` jumps count against ramp/step/range rules. Removed the `0.72 * rated_mw` cheat from `evolve/loop.py`.
+  - **Fair baselines & 3-seed reliability (`seeds=[101, 202, 303]`):**
+    - `B0`: true end-to-end **full raw PDF in -> controller out** (`gemini-4-neon`, no page hints, no verified constraints, no checker): **32 / 33 (97.0%)** preset runs (`atc` seed 101 failed), **10 / 11** on unseen `Rand20` (`miso_held_out` failed `9/10`).
+    - `B3`: non-LLM LPF + battery policy tuned by seeded random search with the **exact same simulator evaluation budget** as GridSafe: **33 / 33 (100%)** presets (`~3.1 s`), **10 / 11** on unseen `Rand20` (`lipa` failed `15/20`), consistently higher TP loss & overhead than GridSafe on every binding ramp profile.
+    - `GridSafe` (`gemini-4-hydrogen` evolve): **33 / 33 (100%)** preset runs (`27–54 s/run`), **10 / 11** on unseen `Rand20` (`lipa` `19/20`, `-4.85%` margin), lowest OH (`2.3–4.0%`) and TP loss (`9.7–17.5%` combined; `0.2–1.6%` on 30-min slow runs) on all 9 binding ramp/step profiles. (Note: `caiso` `20 MW/min` over `600 s` = `200 MW/10 min` is physically non-binding at `100 MW`, so Noop & B1 pass `caiso`; `lipa` seed 101 used `fallback_conservative_floor`.)
+  - **Unseen random workload suite (`eval/random_suite.py`):** Samples `N=20` fast+slow workloads from documented ranges using `--seed` (`make eval-final SEED=<judge_seed>`).
+  - **Entity, window-range, and sub-synchronous band assumptions:** Added `entity` field + within-entity conflict detection + cross-page dedup; `4–6 s` window range -> `6.0 s` with assumption; IESO sub-synchronous band -> `5.0–55.0 Hz` with assumption shown on certificate.
+  - **`57 passed`** in `make test`; `make eval` and `make eval-final SEED=20261121` pass cleanly.
 - **Phase 4 (Next — SPEC.md already updated, NOT built yet):** Managed agents `gridsafe-engineer` (`gemini-4-hydrogen`, skills `read-rulebook`, `evolve-controller`, `certify`) and `gridsafe-hardener` (`gemini-4-carbon`, skills `red-team`, `analyze-failure`) communicating via custom-function `message_agent` bridge + logged JSON threads in `eval/agent_threads/`, background hardening run (`eval/attacks/`), and Baseline B2.
 - **Phases 5–7 (Not started):** Phase 5 UI flow + canvas shaft/spectrum + thread viewer; Phase 6 "Break the grid" judge sliders (`eval/live/`); Phase 7 `make eval-final`, `RESULTS.md`, `docs/DEMO.md`, `README.md` polish.
 
 ## 3. Repo Map
 - `AGENTS.md` — Always-applied rule forbidding agent commits/pushes.
 - `SPEC.md` — Full hackathon build spec (Phase 4 already updated for multi-agent `message_agent` protocol).
-- `FAILURES.md` — Real failure log F1–F8 with before/after measurements from live runs.
-- `Makefile` — Targets: `test`, `eval`, `eval-final`, `run`, `replay`, `demo-check`, `build-ui`, `fetch-specs`.
+- `FAILURES.md` — Real failure log F1–F12 with before/after measurements (including Phase 3b regressions/honest findings).
+- `Makefile` — Targets: `test`, `eval`, `eval-final SEED=<seed>`, `run`, `replay`, `demo-check`, `build-ui`, `fetch-specs`.
 - `config/` — `models.yaml` (model IDs + calibrated verifier thresholds) and `fbm.yaml` (user-supplied IEEE FBM parameters).
-- `docs/` — `API_NOTES.md` (verified Gemini 4 / Decisions / Managed Agents APIs), `VALIDATION.md` (Phase 1 physics report), `HANDOFF.md`.
-- `workload/synth.py` — Deterministic cluster trace generator + 4 presets (`standard_training`, `ssr_mode1_attack`, `ssr_mode2_attack`, `abrupt_checkpoint_drop`).
-- `sim/` — `shaft.py` (6-mass IEEE FBM FFT modal solver) and `plant.py` (time-stepped GPU + battery + energy ledger).
-- `rules/` — `schema.py`, `units.py`, `checker.py` (deterministic O(N) compliance checker), `profiles.py` (per-utility `dev`/`held_out` profile loader).
-- `reader/` — `pdf_utils.py` (`pymupdf`, backend-only), `extract.py` (`gemini-4-neon`), `verify.py` (`gemini-decision-1` batched per page).
-- `controllers/seed.py` — 38-line pure-numpy EMA seed controller.
-- `evolve/` — `sandbox.py` (AST validator + subprocess runner), `_runner.py` (restricted-builtins child worker), `loop.py` (parallel Hydrogen evolution), `baselines.py` (Noop, B1, B0).
-- `server/app.py` — FastAPI backend (`/api/health`, `/api/stream/ping`, serves `frontend/dist/`).
-- `frontend/` — Vite 8 + React 19 + TS 7 + Tailwind v4 + shadcn/ui scaffold (`public/favicon.png`, `public/thumbnail.png`).
-- `specs/` — `SOURCES.md` (source URLs + `[dev]`/`[held_out]` tags); `specs/*.pdf` are gitignored (6 PDFs currently local).
-- `eval/` — `run_eval.py`, `degrade.py`, `extraction.py`, `gold/` (2 human-labeled JSONs + `TEMPLATE.json`), `cache/` (live extraction/calibration/Phase 3 JSON caches).
-- `scripts/` — `fetch_specs.py`, `run_specs_reader.py`, `calibrate_dev_verifier.py`, `label.py`, `run_phase3_baselines.py`, `generate_validation_doc.py`, `demo_check.py`.
-- `tests/` — `test_scaffold.py`, `test_phase1_physics.py`, `test_phase1_rules.py`, `test_phase2_reader_verifier.py`, `test_phase3_evolve.py` (51 tests total).
+- `docs/` — `API_NOTES.md`, `VALIDATION.md`, `HANDOFF.md`.
+- `workload/synth.py` — Deterministic cluster trace generator + fast presets (`20 s @ 0.002 s`) + slow presets (`30 min @ 0.5 s`), all starting at idle.
+- `sim/` — `shaft.py` (6-mass IEEE FBM FFT modal solver) and `plant.py` (time-stepped GPU + battery + energy ledger + `idle_mw` initial condition).
+- `rules/` — `schema.py` (`Constraint` with `entity` & `assumptions`, `ComplianceReport` with `not_evaluable`), `units.py` (`is_per_minute_ramp_unit`, `parse_window_range_s`), `checker.py` (`2x` window gate, idle prepending, Nyquist checks, `5–55 Hz` sub-sync band), `profiles.py` (11 profiles: 7 `dev` + 4 `held_out`).
+- `reader/` — `pdf_utils.py` (`pymupdf`, backend-only), `extract.py` (`gemini-4-neon`, explicit `entity`, entity-scoped conflicts, cross-page dedup), `verify.py` (`gemini-decision-1` batched per page).
+- `controllers/seed.py` — 38-line pure-numpy EMA seed controller (starts at idle).
+- `evolve/` — `sandbox.py` (AST validator + subprocess runner + dual-family aggregation), `_runner.py`, `loop.py` (seeded parallel Hydrogen evolution, idle-start aware), `baselines.py` (Noop, B1, full-PDF B0, matched-budget random-search B3).
+- `eval/` — `run_eval.py`, `random_suite.py` (seeded `N=20` unseen workloads), `degrade.py`, `extraction.py`, `gold/` (all 6 human-labeled JSONs + `TEMPLATE.json`), `cache/` (`phase3_results.json` schema `phase3b`, `extractions/`, `dev_calibration.json`).
+- `scripts/` — `fetch_specs.py`, `run_specs_reader.py`, `calibrate_dev_verifier.py`, `label.py` (`--checkable-only`), `run_phase3_baselines.py`, `generate_validation_doc.py`, `demo_check.py`.
+- `tests/` — `test_scaffold.py`, `test_phase1_physics.py`, `test_phase1_rules.py`, `test_phase2_reader_verifier.py`, `test_phase3_evolve.py` (57 tests total).
 
 ## 4. Common Commands
-- **Unit tests (51 tests, ~30 s):** `make test` (runs `.venv/bin/pytest -q`)
-- **Dev eval (Phase 1 gates + gold extraction + dev Phase 3 table):** `make eval`
-- **Final eval (includes `held_out` profiles):** `make eval-final`
+- **Unit tests (57 tests, ~33 s):** `make test`
+- **Dev eval (Phase 1 fast+slow gates + 6 gold docs + dev Phase 3b table):** `make eval`
+- **Final eval with judging-time random seed:** `make eval-final SEED=20261121`
+- **Sample N unseen workloads:** `.venv/bin/python -m eval.random_suite --seed <SEED> --n 20`
 - **Fetch missing PDFs from `specs/SOURCES.md`:** `make fetch-specs`
-- **Run Reader + Verifier on newly added `specs/*.pdf` only:** `.venv/bin/python scripts/run_specs_reader.py --new-only`
-- **Run Phase 3 baselines + Hydrogen Designer (new profiles only / all):** `.venv/bin/python scripts/run_phase3_baselines.py --new-only` (omit `--new-only` to rerun all 11)
-- **Human gold labeling CLI (user-operated only):** `.venv/bin/python scripts/label.py`
+- **Run Phase 3b multi-seed benchmark:** `.venv/bin/python scripts/run_phase3_baselines.py --seeds 101 202 303`
+- **Human gold labeling CLI (user-operated only):** `.venv/bin/python scripts/label.py --checkable-only`
 - **Build UI / run server:** `make build-ui`, `make run`, `make replay`, `make demo-check`
 
-## 5. Decisions, Thresholds & Gotchas (Not in SPEC.md / API_NOTES.md)
-- **Calibrated Verifier thresholds (`config/models.yaml`):** `confidence_threshold: 0.85`, `readability_threshold: 0.60`, selected strictly from original `dev` split (`n=50`, CAISO + ESIG) + CAISO p.13 negative/degradation sweeps cached in `eval/cache/dev_calibration.json`. Do NOT re-tune on `held_out`.
-- **Designer thinking level (`config/models.yaml`):** Set `designer.thinking_level: low` (not `medium`). With `medium`, 2 generations took `84.8 s` (> 75 s budget); with `low` + `as_completed(timeout=remaining_budget)` in `evolve/loop.py`, all 11 profiles finish in `26–55 s`.
-- **Cached live runs:** Do not needlessly re-spend API quota/time re-running already cached PDFs or profiles. Live caches live at:
-  - `eval/cache/extractions/<pdf_stem>.json` (all 6 PDFs, scored at `0.85` / `0.60`)
-  - `eval/cache/dev_calibration.json` (CAISO p.1/p.13 controls & Sev 1–4 degradation sweep)
-  - `eval/cache/phase3_results.json` (11 profiles x 4 workloads for Noop, B1, B0, GridSafe + winning code)
-- **New `specs/` PDF handling:** `scripts/run_specs_reader.py` defaults any unlisted PDF to `held_out`. `rules/profiles.py` excludes dev-duplicate utilities from held-out comparative decks (keeping `2601.12686v1.pdf` Southern explicitly held out) so `held_out` stays leak-free (`ieso_held_out`, `miso_held_out`, `southern_held_out`, `spp_held_out`).
-- **PyMuPDF import:** Package `pymupdf==2.1` is imported as `import pymupdf` (not `fitz`) inside `reader/` and `eval/degrade.py`. Pytest emits 5 harmless upstream SwigPy `DeprecationWarning`s from it.
-- **No native subagent nesting:** Verified directly in `custom-agents.md` (*Limitations*: `"No subagent nesting: Subagent delegation is not yet supported."`). Implement Phase 4 agent-to-agent dialogue through the custom function `message_agent` bridging `gridsafe-engineer` <-> `gridsafe-hardener` via `client.interactions.create` with persistent `previous_interaction_id` + `environment` per agent.
+## 5. Decisions, Thresholds & Gotchas
+- **Calibrated Verifier thresholds (`config/models.yaml`):** `confidence_threshold: 0.85`, `readability_threshold: 0.60` (selected strictly on dev split; do NOT re-tune on `held_out`).
+- **Documented checker assumptions (always shown on certificates):**
+  - Per-minute ramp limit with no stated window -> `60 s` rolling window.
+  - Step/ramp window range (e.g. Southern `"4–6 second interval"`) -> upper bound (`6.0 s`) + logged range.
+  - IESO sub-synchronous oscillation without Hz bounds -> `5.0–55.0 Hz` (60 Hz SSTI/SSCI band covering IEEE FBM modes `15.7–47.5 Hz`).
+- **Cached live runs:** `eval/cache/phase3_results.json` (`schema_version: "phase3b"`) holds all 11 profiles x 3 seeds x (Noop, B1, B0 full-PDF, B3 random search, GridSafe) + unseen `Rand20` results.
+- **No native subagent nesting:** Implement Phase 4 agent-to-agent dialogue via custom function `message_agent` bridging `gridsafe-engineer` <-> `gridsafe-hardener` via `client.interactions.create` with persistent `previous_interaction_id` + `environment` per agent.
 
-## 6. Known Issues & Open Items
-- **Phase 4 ready to build:** Create `.agents/AGENTS.md`, `.agents/skills/{read-rulebook,evolve-controller,certify,red-team,analyze-failure}/SKILL.md`, `.agents/hooks.json`, managed agent provisioning/orchestrator (`gridsafe-engineer` + `gridsafe-hardener` + `message_agent` bridge + independent backend checker verification on every controller and counterexample), `eval/agent_threads/`, `eval/attacks/`, background hardening run, and Baseline B2.
-- **Disclosed `t=0` pre-conditioning trade-off (`FAILURES.md` F5):** GridSafe (`~65–72 MW` initial target) and B1 (`90 MW` floor) treat `t=0` as a pre-conditioned steady-state operating point (achieving `0.0%` throughput loss), whereas B0 anchored at `p_raw[0]=15 MW` idle and incurred `15.9–21.9%` curtailment. Keep this disclosed in `RESULTS.md` / UI.
-- **Prime Phase 4 hardener target (`southern_dev`):** GridSafe's winning `southern_dev` controller passed all 4 workloads (`2.5%` OH) while leaving `0.166 pu` peak shaft torque on `ssr_mode1_attack` (because `southern_dev` only constrains 60 s ramp + 10 MW step, not 15.71 Hz FFT) — great target for `gridsafe-hardener` red-teaming.
-- **Partial human gold coverage:** 2 of 6 PDFs have human gold labels in `eval/gold/` (`2601.12686v1.json`, `LL-Performance-Requirements-Framework-and-Methodology_v2.json`; `P=1.0, R=1.0, H=0.0`); the remaining 4 await user labeling via `scripts/label.py` if desired before Phase 7.
-- **Gitignored PDFs:** `specs/*.pdf` are gitignored; a fresh clone or remote sandbox must run `make fetch-specs` (or use cached `eval/cache/extractions/*.json`) if raw PDFs are needed.
+## 6. Known Issues & Prime Phase 4 Hardening Targets
+- **Phase 4 ready to build:** Create `.agents/AGENTS.md`, `.agents/skills/{read-rulebook,evolve-controller,certify,red-team,analyze-failure}/SKILL.md`, `.agents/hooks.json`, managed agent provisioning/orchestrator (`gridsafe-engineer` + `gridsafe-hardener` + `message_agent` bridge + independent backend checker verification), `eval/agent_threads/`, `eval/attacks/`, background hardening run, and Baseline B2.
+- **Prime Phase 4 hardener targets:**
+  1. `lipa`: GridSafe's best evolved controller failed `1/20` unseen random workloads (`fluctuation_band_25` `0.1–5 Hz`, `-4.85%` margin), and seed `101` fell back to conservative floor (`41.4%` OH).
+  2. `southern_dev`: still leaves higher shaft torque on resonant excitation because its rulebook has no explicit Hz band — ideal red-team target for `gridsafe-hardener`.
+- **CAISO at 100 MW:** `20 MW/min` over `600 s` (`200 MW/10 min`) is physically non-binding at `100 MW` (only binds `> 235 MW`). Keep disclosed honestly in `RESULTS.md` and UI.
+- **Gitignored PDFs:** `specs/*.pdf` are gitignored (all 6 are currently fetched locally via `make fetch-specs`). Note arXiv filename is `specs/2601.12686.pdf` (handled automatically by `evolve.baselines.resolve_pdf_path`).

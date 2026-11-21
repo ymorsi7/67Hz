@@ -99,6 +99,7 @@ class SimulationResult:
     soc: np.ndarray
     shaft: ShaftResponse
     metrics: SimulationMetrics
+    initial_grid_mw: float = 0.0
 
 
 def noop_controller(obs: dict[str, Any]) -> dict[str, float]:
@@ -179,7 +180,9 @@ def simulate_plant(
     controller_state: dict[str, Any] = {}
     rules_payload = dict(rules_dict) if rules_dict is not None else {}
 
-    prev_grid = float(p_raw[0])
+    # Pre-t=0 facility idle power; prepended by checker so t=0 jumps count against ramp/step rules.
+    initial_grid_mw = float(trace.idle_mw) if getattr(trace, "idle_mw", 0.0) > 0.0 else float(p_raw[0])
+    prev_grid = initial_grid_mw
 
     # Pre-build observation dict and mutate scalar/view fields in-place for speed.
     obs: dict[str, Any] = {
@@ -188,6 +191,7 @@ def simulate_plant(
         "step": 0,
         "p_raw_mw": float(p_raw[0]),
         "p_prev_grid_mw": prev_grid,
+        "idle_mw": initial_grid_mw,
         "rated_mw": rated_mw,
         "soc": batt.initial_soc,
         "battery_energy_mwh": e_curr,
@@ -332,4 +336,5 @@ def simulate_plant(
         soc=soc,
         shaft=shaft_resp,
         metrics=metrics,
+        initial_grid_mw=initial_grid_mw,
     )

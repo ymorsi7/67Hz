@@ -101,7 +101,7 @@ def main() -> None:
     raw = sys.stdin.read()
     payload = json.loads(raw)
 
-    cpu_limit = int(payload.get("cpu_limit_s", 10))
+    cpu_limit = int(payload.get("cpu_limit_s", 12))
     _apply_cpu_limit(cpu_limit)
 
     code: str = payload["code"]
@@ -116,7 +116,6 @@ def main() -> None:
         history_window=int(plant_dict.get("history_window", 250)),
     )
 
-    # Compile and execute candidate controller in a strictly restricted namespace
     ns: dict[str, Any] = {
         "__builtins__": _restricted_builtins(),
         "np": np,
@@ -155,6 +154,7 @@ def main() -> None:
             failing = [
                 {
                     "workload": wl_name,
+                    "family": wl_params.family,
                     "constraint_id": r.constraint_id,
                     "constraint_type": r.constraint_type,
                     "status": r.status,
@@ -165,22 +165,28 @@ def main() -> None:
                     "canonical_unit": r.canonical_unit,
                     "page": r.page,
                     "snippet": r.snippet,
+                    "entity": r.entity,
                     "details": r.details,
                 }
                 for r in report.results
-                if not r.passed and r.status != "uncheckable"
+                if r.status in {"fail", "error", "needs_review"}
             ]
             per_workload.append(
                 {
                     "workload": wl_name,
+                    "family": wl_params.family,
+                    "status": report.status,
                     "passed": report.passed,
                     "checkable_count": report.checkable_count,
+                    "evaluable_count": report.evaluable_count,
+                    "not_evaluable_count": report.not_evaluable_count,
                     "passed_count": report.passed_count,
                     "failed_count": report.failed_count,
                     "needs_review_count": report.needs_review_count,
                     "worst_constraint_id": report.worst_constraint_id,
                     "worst_margin_pct": report.worst_margin_pct,
                     "refusal_reason": report.refusal_reason,
+                    "assumptions": list(report.assumptions),
                     "failing_constraints": failing,
                     "energy_overhead_pct": sim_res.metrics.energy_overhead_pct,
                     "throughput_loss_pct": sim_res.metrics.throughput_loss_pct,

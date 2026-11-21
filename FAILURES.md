@@ -102,4 +102,50 @@ Tracks real failure modes discovered during development, live runs on real utili
   - GridSafe Gen 1 (before feedback): **0 / 6** candidates passed.
   - GridSafe Gen 2–3 (after checker-margin feedback): **5 / 19** candidates passed -> winning controller **4 / 4 pass**, **`3.6%` energy overhead**, **`0.0%` throughput loss**, **`0.00224` wear** in `54.6 s`.
 
+---
+
+## F9. Window-Length Mismatch & Non-Binding 100 MW CAISO 10-Minute Window (Phase 3b Validity Fix)
+
+- **Category:** Evaluation validity / checker window semantics (`rules/checker.py`, `workload/synth.py`)
+- **Example:** In Phase 3, CAISO's `20 MW/min` ramp limit over a **600 s (10-minute)** rolling window (p. 13) was judged on a **10 s** trace (`|p[-1] - p[0]| / 10 s`), making an uncontrolled 100 MW cluster appear to ramp at `510 MW/min` and fail `0 / 4`. Meanwhile, unwindowed `MW/min` rules (AESO, ERCOT, IESO, Southern held-out, SPP) were judged sample-to-sample at `dt = 0.002 s`.
+- **What changed:**
+  - Any rule with `trace_duration < 2 * window_s` (or frequency band outside trace Nyquist / `< 2` cycles) now returns `status="not_evaluable"` (`passed=None`) — never pass or fail.
+  - Per-minute ramp rules (`MW/min`, `%/min`, `kW/min`) with no stated window default to a `60 s` rolling window, explicitly recorded on `Constraint.assumptions` and certificates.
+  - Added a 30-minute slow scenario family (`1800 s` @ `0.5 s`, 3 workloads covering idle, job start, checkpoints, job stop) and lengthened fast traces to `20 s` (`2x` the largest `10 s` fast window). One full evaluation stays well under `0.5 s` (`mean = 18.6 ms`, `max = 36.8 ms` fast / `10.9 ms` slow).
+- **Before vs After (what changed / got worse):**
+  - **CAISO at 100 MW:** `20 MW/min` averaged over `600 s` allows `200 MW` change per 10 minutes. An uncontrolled `100 MW` cluster (`15 -> 100 MW`, max swing `85 MW`) can never exceed `8.5 MW/min` over 10 min, so **Noop and B1 now PASS CAISO at 100 MW** (previously falsely failed `0/4` on 10 s traces; CAISO's rule only binds for clusters `> 235 MW`).
+  - All other 10 profiles (`6 dev`, `4 held_out`) remain strictly binding (`Noop FAIL`, `B1 FAIL`) across the combined fast + slow suite with zero globally unevaluated rules.
+
+---
+
+## F10. Prepending Facility Idle at `t = 0` Eliminates Phase 3's `0.0%` Throughput-Loss Shortcut
+
+- **Category:** Initial condition validity (`workload/synth.py`, `sim/plant.py`, `rules/checker.py`, `evolve/loop.py`)
+- **Example:** In Phase 3, GridSafe controllers initialized `p_target ≈ 72 MW` at `t = 0` (and B1 fixed `90 MW`), creating an unpenalized `+57 MW` instantaneous jump from `15 MW` idle at `t = 0` that produced an artificial `0.0%` throughput loss across all 11 profiles.
+- **What changed:** Every trace (fast, slow, and random suite) now starts at facility idle (`idle_mw = idle_fraction * rated_mw`), and `check_compliance()` prepends steady `idle_mw` for all `t < 0` so any jump at `t = 0` counts against `ramp_rate`, `max_step`, and `dynamic_range`. Removed the `0.72 * rated_mw` initialization hint from `evolve/loop.py`.
+- **Before vs After (honest degradation across 3 seeds x 11 profiles):**
+  - **GridSafe mean throughput loss (got worse, now physically honest):** **`0.0%`** (Phase 3 t=0 shortcut) -> **`9.7% – 17.5%`** across the 9 binding ramp/step profiles (`0.0%` on non-binding CAISO; `5.2%` on frequency-only LIPA).
+  - **Fast vs Slow split (3-seed passing means):** On **30-minute slow runs**, GridSafe achieves **`0.2% – 1.6%`** throughput loss by charging the battery smoothly during the idle prefix to pre-load the grid before job start. On **20-second fast runs** (only `0.5 s` of idle before a `100 MW` demand step under `10–20 MW/min` or `10 MW / 5 s` limits), startup curtailment is physically unavoidable (`16.7% – 29.5%` fast throughput loss).
+  - **Relative standing vs baselines:** Even with honest idle starts, GridSafe achieves lower throughput loss and lower energy overhead than both B0 (full PDF) and B3 (matched-budget random search) on every binding ramp profile (e.g., ERCOT: GridSafe `13.8% TP / 3.5% OH` vs B0 `18.2% TP / 4.3% OH` vs B3 `18.7% TP / 4.7% OH`; IESO held-out: GridSafe `13.1% TP / 2.9% OH` vs B0 `18.7% TP / 4.2% OH` vs B3 `18.7% TP / 4.7% OH`; MISO held-out: GridSafe `9.7% TP / 2.3% OH` vs B0 `14.2% TP / 3.6% OH` vs B3 `16.9% TP / 3.9% OH`).
+
+---
+
+## F11. Multi-Seed Variance, `lipa` Fallback & Unseen Random-Suite (`N=20`) Generalization Gaps
+
+- **Category:** Reliability & out-of-distribution generalization (`evolve/baselines.py`, `evolve/loop.py`, `eval/random_suite.py`)
+- **Example:** Running 3 seeds (`101, 202, 303`) per profile across all 11 profiles and testing winning controllers on `N = 20` unseen randomly sampled workloads (`eval/random_suite.py`, `seed=20261121`) surfaced real variance and generalization gaps that single-seed preset runs hid:
+  - **B0 (true end-to-end full PDF, no Reader page slicing):** Passed **32 / 33 (97.0%)** preset runs, failing `atc` seed `101` (`ramp_rate_8 = 532.6 MW/s > 0.5 MW/s`, `max_step_18 = 44.4 MW > 25 MW`), and failed **1 / 10** unseen slow workloads on held-out `miso_held_out` (`ramp_rate_0` margin `-15.4%`; `10 / 11` profiles passed all unseen workloads). On `ieso_held_out`, B0 rose from `0/4` to `3/3` after Step 8 replaced IESO's unbanded `0–250 Hz` check with the explicit `5–55 Hz` sub-synchronous assumption, though with `18.7%` TP loss vs GridSafe's `13.1%`.
+  - **B3 (LPF + battery random search, matched simulator evals, no LLM):** Passed **33 / 33 (100%)** preset runs in `~3.1 s`, proving a strong non-LLM baseline on simple ramp rules, but suffered higher throughput loss (`+0.5% to +7.2%`) and higher overhead (`+0.3% to +1.9%`) than GridSafe on every binding ramp profile AND failed **5 / 20** unseen workloads on `lipa` (`15/20`, `fluctuation_band_25` margin `-31.6%`).
+  - **GridSafe (Hydrogen evolve, 3 seeds):** Passed **33 / 33 (100%)** preset runs, **but** on `lipa` seed `101` evolution fell back to `fallback_conservative_floor` (`41.4%` OH, `0.0%` TP, raising `lipa` 3-seed mean OH to **`15.3%`** vs `2.3%` on seeds `202`/`303`), AND GridSafe's best evolved `lipa` controller failed **1 / 20** unseen workloads (`Rand20 = 19/20`, `fluctuation_band_25` `0.1–5 Hz` violated by `-4.85%` margin). This makes `lipa` a prime target for Phase 4 `gridsafe-hardener` adversarial testing.
+
+---
+
+## F12. Entity-Scoped Conflicts, Cross-Page Duplicates, Window Ranges & IESO Sub-synchronous Band
+
+- **Category:** Extraction normalization & assumption transparency (`rules/schema.py`, `rules/units.py`, `reader/extract.py`, `rules/profiles.py`, `scripts/label.py`)
+- **Example:** (1) Multi-utility PDFs (CAISO p. 14, MISO p. 6) falsely flagged ERCOT vs ATC vs AESO as conflicts and could leak `[CONFLICT]` notes into human gold files; (2) LIPA limits restated on CAISO pp. 23 & 25 were not deduped across pages; (3) Southern Company's `"4–6 second interval"` (CAISO p. 22) dropped `window_s=None`; (4) IESO's `"sub-synchronous frequency band"` (p. 8) had `freq_min_hz=freq_max_hz=None`.
+- **What changed:** Added explicit `entity` field to `Constraint` and Reader schema, restricted `detect_conflicts()` to within-entity comparisons, added cross-page deduplication for matching `(entity, type, value, unit, window, band)`, parsed window ranges conservatively to the upper bound (`4–6 s -> 6.0 s` + assumption), set `DEFAULT_SUBSYNCHRONOUS_BAND_HZ = (5.0, 55.0)` for unspecified sub-synchronous rules (recorded on constraint + certificate), and added `--checkable-only` + `[CONFLICT]` stripping to `scripts/label.py`.
+- **Human gold evaluation (all 6 PDFs now labeled in `eval/gold/`):** Against the pre-Phase-3b cached extractions, `Recall = 1.000`, `Precision = 0.679`, `Hallucination = 0.321`, `Abstention = 0.034` (`2601.12686v1`, `ESIG`, and `PSEG-LIPA` all `P=1.0, R=1.0`; `8` of `9` FPs come from MISO p. 6 comparative-utility entries and pre-dedup CAISO p. 25 LIPA duplicates, validating the Step 7 entity & cross-page dedup fixes).
+
+
 

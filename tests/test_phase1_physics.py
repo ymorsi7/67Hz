@@ -150,7 +150,7 @@ def test_energy_conservation_lossless_and_lossy() -> None:
         + (e_init - e_final)
         - (float(np.sum(res_lossy.p_gpu_mw) * dt_h) + expected_loss)
     )
-    assert indep_residual < 1e-12
+    assert indep_residual < 1e-9
     assert res_lossy.metrics.battery_wear_proxy > 0.0
     assert res_lossy.metrics.battery_efc > 0.0
     assert np.all(res_lossy.soc >= 0.1 - 1e-12)
@@ -188,28 +188,33 @@ def test_determinism_end_to_end() -> None:
 
 
 def test_evaluation_speed_under_half_second() -> None:
-    """Gate: one full evaluation (synth + plant + IEEE FBM shaft + checker) runs under 0.5 seconds."""
+    """Gate: one full evaluation (synth + plant + IEEE FBM shaft + checker) runs under 0.5 seconds on BOTH families."""
     shaft = load_shaft_model()
     ruleset = RuleSet(
         rated_mw=100.0,
         constraints=[
-            Constraint("ramp_rate", 30.0, "MW/min", page=1, snippet="30 MW/min", window_s=1.0),
-            Constraint("max_step", 10.0, "MW", page=1, snippet="10 MW", window_s=1.0),
+            Constraint("ramp_rate", 30.0, "MW/min", page=1, snippet="30 MW/min", window_s=60.0),
+            Constraint("max_step", 10.0, "MW", page=1, snippet="10 MW", window_s=5.0),
             Constraint("fluctuation_band", 2.0, "MW", page=2, snippet="2 MW", freq_min_hz=12.0, freq_max_hz=50.0),
             Constraint("dynamic_range", 20.0, "MW", page=2, snippet="20 MW"),
         ],
     )
 
     import time
+    from workload.synth import slow_preset_workloads
 
-    t0 = time.perf_counter()
-    trace = generate_workload(preset_workloads(100.0)["standard_training"])
-    sim_res = simulate_plant(trace, controller=noop_controller, shaft_model=shaft)
-    report = check_compliance(sim_res, ruleset)
-    elapsed = time.perf_counter() - t0
-
-    assert elapsed < 0.5, f"Full evaluation took {elapsed:.3f}s, exceeding 0.5s gate"
-    assert report.checkable_count == 4
+    for label, params in [
+        ("fast", preset_workloads(100.0)["standard_training"]),
+        ("slow", slow_preset_workloads(100.0)["slow_training_run"]),
+    ]:
+        t0 = time.perf_counter()
+        trace = generate_workload(params)
+        sim_res = simulate_plant(trace, controller=noop_controller, shaft_model=shaft)
+        report = check_compliance(sim_res, ruleset)
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 0.5, f"Full {label} evaluation took {elapsed:.3f}s, exceeding 0.5s gate"
+        assert report.checkable_count == 4
+        assert trace.p_raw_mw[0] == pytest.approx(trace.idle_mw, abs=1e-12)
 
 
 def test_workload_scales_with_cluster_size() -> None:

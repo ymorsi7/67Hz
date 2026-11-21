@@ -74,10 +74,10 @@ class TestHandComputedCheckerCases:
         dt = 0.5
         p = np.array([50.0 + 10.0 * (i * dt) for i in range(11)], dtype=np.float64)
 
-        # Exact limit in MW/min (600 MW/min = 10.0 MW/s) -> PASS with margin 0.0
+        # Explicit 0.5s window (trace 5.5s >= 2*0.5s) -> exact 600 MW/min = 10.0 MW/s PASS with margin 0.0
         rs_exact = RuleSet(
             rated_mw=100.0,
-            constraints=[Constraint("ramp_rate", 600.0, "MW/min", page=1, snippet="600 MW/min")],
+            constraints=[Constraint("ramp_rate", 600.0, "MW/min", page=1, snippet="600 MW/min", window_s=0.5)],
         )
         rep_exact = check_trace(p, dt_s=dt, ruleset=rs_exact)
         assert rep_exact.passed is True
@@ -88,16 +88,16 @@ class TestHandComputedCheckerCases:
         # Tighter limit (599.4 MW/min = 9.99 MW/s) -> FAIL with margin -0.01 MW/s
         rs_fail = RuleSet(
             rated_mw=100.0,
-            constraints=[Constraint("ramp_rate", 599.4, "MW/min", page=1, snippet="599.4 MW/min")],
+            constraints=[Constraint("ramp_rate", 599.4, "MW/min", page=1, snippet="599.4 MW/min", window_s=0.5)],
         )
         rep_fail = check_trace(p, dt_s=dt, ruleset=rs_fail)
         assert rep_fail.passed is False
         assert rep_fail.results[0].margin == pytest.approx(-0.01, abs=1e-9)
 
     def test_ramp_rate_windowed(self) -> None:
-        # Steps +5 MW every 0.5s, then flat: over 2s window max delta = 10 MW -> 5.0 MW/s
+        # Steps +5 MW every 0.5s, then flat (8 samples = 4.0s >= 2*2.0s): over 2s window max delta = 10 MW -> 5.0 MW/s
         dt = 0.5
-        p = np.array([100.0, 105.0, 110.0, 110.0, 110.0, 110.0], dtype=np.float64)
+        p = np.array([100.0, 105.0, 110.0, 110.0, 110.0, 110.0, 110.0, 110.0], dtype=np.float64)
         rs = RuleSet(
             rated_mw=200.0,
             constraints=[
@@ -108,6 +108,85 @@ class TestHandComputedCheckerCases:
         assert rep.passed is True
         assert rep.results[0].measured == pytest.approx(5.0, abs=1e-12)
         assert rep.results[0].margin == pytest.approx(0.0, abs=1e-12)
+
+    def test_short_trace_returns_not_evaluable_and_mw_per_min_assumes_60s(self) -> None:
+        # MW/min with no stated window assumes 60 s rolling window and records assumption
+        c = Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="ERCOT: 20 MW/min")
+        assert c.window_s == pytest.approx(60.0)
+        assert any("60 s" in a for a in c.assumptions)
+
+        # 10 s trace (< 2 * 60 s = 120 s) MUST return not_evaluable (passed=None), never pass or fail
+        p_short = np.full(20, 50.0, dtype=np.float64)
+        rs = RuleSet(rated_mw=100.0, constraints=[c])
+        rep_short = check_trace(p_short, dt_s=0.5, ruleset=rs)
+        assert rep_short.status == "not_evaluable"
+        assert rep_short.passed is False
+        assert rep_short.not_evaluable_count == 1
+        assert rep_short.evaluable_count == 0
+        assert rep_short.results[0].status == "not_evaluable"
+        assert rep_short.results[0].passed is None
+        assert any("60 s" in a for a in rep_short.assumptions)
+
+        # 120 s trace (>= 2 * 60 s) IS evaluable and passes steady signal
+        p_long = np.full(240, 50.0, dtype=np.float64)
+        rep_long = check_trace(p_long, dt_s=0.5, ruleset=rs)
+        assert rep_long.status == "pass"
+        assert rep_long.passed is True
+        assert rep_long.evaluable_count == 1
+
+    def test_idle_initial_condition_prepended_catches_t0_jump(self) -> None:
+        # Facility starts at idle 15 MW; jumping immediately to 72 MW at t=0 must FAIL ramp & step rules!
+        dt = 0.5
+        p_jump = np.full(240, 72.0, dtype=np.float64)  # 120 s constant at 72 MW
+        rs = RuleSet(
+            rated_mw=100.0,
+            constraints=[
+                Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min", window_s=60.0),
+                Constraint("max_step", 10.0, "MW", page=23, snippet="10 MW over 5s", window_s=5.0),
+            ],
+        )
+        rep_jump = check_trace(p_jump, dt_s=dt, ruleset=rs, initial_power_mw=15.0)
+        assert rep_jump.passed is False
+        assert rep_jump.failed_count == 2
+        assert rep_jump.results[0].measured == pytest.approx((72.0 - 15.0) / 60.0)
+        assert rep_jump.results[1].measured == pytest.approx(72.0 - 15.0)
+
+        # Smooth legal ramp from 15 MW at 18 MW/min (0.3 MW/s) -> PASSES both rules!
+        t = np.arange(240, dtype=np.float64) * dt
+        p_ramp = np.minimum(72.0, 15.0 + 0.3 * (t + dt))
+        rep_ramp = check_trace(p_ramp, dt_s=dt, ruleset=rs, initial_power_mw=15.0)
+        assert rep_ramp.passed is True
+
+    def test_window_range_and_subsynchronous_band_assumptions(self) -> None:
+        # Step 7: window range "4–6 second interval" -> uses larger bound 6.0 s and records assumption
+        c_range = Constraint(
+            "max_step",
+            10.0,
+            "MW",
+            page=22,
+            snippet="Southern Company: Requires active power variations to remain below 10 MW over a 4–6 second interval.",
+        )
+        assert c_range.window_s == pytest.approx(6.0)
+        assert any("4-6 s" in a and "6 s" in a for a in c_range.assumptions)
+
+        # Step 8: IESO sub-synchronous oscillation without Hz bounds -> assumes 5.0-55.0 Hz on constraint + report
+        c_ieso = Constraint(
+            "fluctuation_band",
+            0.25,
+            "% of rated load",
+            page=8,
+            snippet="no periodic power oscillation within the sub-synchronous frequency band exceeding +/-0.25%",
+        )
+        assert c_ieso.freq_min_hz == pytest.approx(5.0)
+        assert c_ieso.freq_max_hz == pytest.approx(55.0)
+        assert any("5-55 Hz" in a for a in c_ieso.assumptions)
+
+        # On slow trace (dt=0.5s, Nyquist=1.0 Hz), 5-55 Hz band MUST be not_evaluable (not vacuous pass!)
+        p_slow = np.full(200, 50.0, dtype=np.float64)
+        rep_slow = check_trace(p_slow, dt_s=0.5, ruleset=RuleSet(rated_mw=100.0, constraints=[c_ieso]))
+        assert rep_slow.status == "not_evaluable"
+        assert rep_slow.results[0].status == "not_evaluable"
+        assert any("5-55 Hz" in a for a in rep_slow.assumptions)
 
     def test_max_step_exact_at_limit_single_and_windowed(self) -> None:
         # Single-step jump of exactly 15 MW (15,000 kW)

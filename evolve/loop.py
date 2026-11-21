@@ -3,7 +3,8 @@
 Pure Python + numpy (+ optional google-genai when calling Hydrogen). No scipy,
 no PyMuPDF, no pydantic. Runs 6 to 8 parallel Hydrogen mutations per generation,
 evaluates every candidate in an isolated subprocess sandbox against the
-deterministic compliance checker (hard gate), scores passing candidates on
+deterministic compliance checker (hard gate across fast and slow scenario
+families with idle initial condition prepended), scores passing candidates on
 energy overhead, throughput loss, battery wear, and shaft torque, feeds back
 exact failing constraints and margins, streams structured progress events, and
 guarantees a safe outcome: compliant evolved controller -> conservative fixed
@@ -17,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 import difflib
 import os
 from pathlib import Path
+import random
 import re
 import time
 from typing import Any, Callable
@@ -47,50 +49,52 @@ def control(obs: dict) -> dict[str, float]:
 MUTATION_STRATEGIES: list[tuple[str, str]] = [
     (
         "slew_battery_first",
-        "Maintain a rate-limited grid power target p_target updated by at most 0.90*r_max*dt per step; "
-        "initialize p_target near mean cluster power (~0.75*rated_mw) or within battery reach of p_raw[0] so "
-        "step 0 starts smoothly; use battery_setpoint_mw = p_raw - p_target first and apply exact GPU floor/cap "
-        "only when the battery power or SOC limit would be exceeded.",
+        "Start p_target strictly at obs['idle_mw'] at step 0 (NEVER jump at t=0!). Update p_target "
+        "using dt-aware rate limiting (<= 0.95*r_max*dt per step) toward p_raw; use exact battery headroom "
+        "discharge/charge first, falling back to GPU cap (delay/curtailment) or GPU floor only when battery "
+        "power or SOC headroom is exhausted.",
     ),
     (
-        "min_overhead_center",
-        "Minimize energy_overhead_pct and throughput_loss_pct: choose an initial p_target close to the "
-        "expected mean workload power (~0.72*rated_mw) so the battery absorbs both peaks (discharge) and dips "
-        "(charge) with near-zero dummy GPU burn and zero curtailment, while strictly enforcing every ramp/step limit.",
+        "preload_battery_charge",
+        "Start p_target strictly at obs['idle_mw'] at step 0. During the idle prefix (when p_raw <= idle_mw + 2 MW "
+        "and soc < 0.85), smoothly ramp p_target upward at the legal ramp rate by CHARGING the battery (avoiding "
+        "wasted dummy GPU burn!) so grid power is pre-positioned higher when the job starts, minimizing throughput loss.",
     ),
     (
         "window_envelope_guard",
-        "Track a rolling buffer of recent p_grid targets in obs['state'] so max(window) - min(window) strictly "
-        "stays below every max_step and dynamic_range limit (with 10% safety margin), while keeping ramp rate "
-        "below the tightest ramp limit using battery-first dispatch.",
+        "Start p_target strictly at obs['idle_mw'] at step 0. Enforce BOTH rolling window max_step limits "
+        "(using a lightweight O(1) slew cap <= 0.95*step_limit/window_s OR time-indexed ring buffer) AND "
+        "60s/600s ramp limits across both fast (dt=0.002s) and slow (dt=0.5s) traces with exact battery headroom.",
     ),
     (
         "spectral_notch_smooth",
-        "Suppress frequency-domain ripples in forbidden fluctuation bands (0.1-55 Hz) and IEEE FBM shaft modes "
-        "by driving p_grid toward a heavily low-pass filtered / nearly constant target with strict slew clamping "
-        "and battery-first actuation.",
+        "Start p_target strictly at obs['idle_mw'] at step 0. Cascade a 2nd-order low-pass filter (tau >= 3s) "
+        "with strict per-step slew clamping so frequency-domain ripples in forbidden bands (0.1-55 Hz) and IEEE FBM "
+        "torsional modes stay far below limits while smoothly tracking slow load changes on 30-min traces.",
     ),
     (
         "soc_balanced_low_wear",
-        "Minimize battery wear proxy (avoid unnecessary large C-rate spikes) and prevent SOC exhaustion by "
-        "adding a very gentle, rate-limited SOC restoring drift toward 0.50 that NEVER violates ramp_rate, "
-        "max_step, or fluctuation_band limits.",
+        "Start p_target strictly at obs['idle_mw'] at step 0. Track a heavily filtered demand target with strict "
+        "ramp/step limits and add a gentle, rate-limited SOC restoring term toward 0.55 on 30-minute traces so "
+        "battery stays ready for both job startup/peaks and checkpoint/shutdown drops with minimal wear.",
     ),
     (
         "high_margin_robust",
-        "Prioritize passing ALL constraints across standard, SSR resonant, and abrupt checkpoint workloads "
-        "with generous safety margin (<= 80% of every numeric limit) while still beating B1's ~30% overhead.",
+        "Start p_target strictly at obs['idle_mw'] at step 0. Prioritize passing ALL constraints across both "
+        "fast (20s @ 0.002s) and slow (30min @ 0.5s) workloads with >= 15% safety margin (<= 85% of every limit) "
+        "using exact battery-first headroom allocation.",
     ),
     (
-        "adaptive_deadband",
-        "Allow small deadband tracking when limits are loose (e.g. LIPA frequency-only rules) to save battery "
-        "wear, and tighten automatically using obs['rules'] whenever ramp_rate or max_step constraints are present.",
+        "fast_startup_step_budget",
+        "Start p_target strictly at obs['idle_mw'] at step 0. When a profile has a 5s/6s max_step limit but no "
+        "strict per-second ramp limit, use an exact rolling-window budget (tracking min/max of recent p_grid "
+        "subsampled every ~0.1s) to ramp up faster within the legal step window and minimize throughput loss.",
     ),
     (
-        "two_stage_filter",
-        "Cascade a slow EMA target with a strict per-step slew limiter and rolling-window clamp, then solve "
-        "exactly for (battery_setpoint_mw, gpu_floor_mw, gpu_cap_mw) accounting for available battery discharge "
-        "and charge headroom from obs['soc'] and obs['battery_capacity_mwh'].",
+        "two_stage_adaptive",
+        "Start p_target strictly at obs['idle_mw'] at step 0. Combine a 2nd-order EMA (dt-aware) with exact "
+        "per-step slew limiting derived from the tightest ramp_rate and max_step/window_s rules, then solve "
+        "exactly for (battery_setpoint_mw, gpu_floor_mw, gpu_cap_mw) using exact battery SOC headroom.",
     ),
 ]
 
@@ -137,6 +141,7 @@ class EvolutionResult:
     total_candidates_passed: int
     total_static_rejected: int
     elapsed_s: float
+    seed: int | None = None
     refusal_reason: str | None = None
     history: list[CandidateRecord] = field(default_factory=list)
 
@@ -146,6 +151,7 @@ class EvolutionResult:
             "passed": self.passed,
             "model": self.model,
             "thinking_level": self.thinking_level,
+            "seed": self.seed,
             "best_code": self.best_code,
             "best_eval": self.best_eval.to_dict() if self.best_eval else None,
             "seed_eval": self.seed_eval.to_dict(),
@@ -161,7 +167,7 @@ class EvolutionResult:
 
 
 def load_designer_config(models_yaml: Path = MODELS_YAML) -> dict[str, str]:
-    defaults = {"model": "gemini-4-hydrogen", "thinking_level": "medium"}
+    defaults = {"model": "gemini-4-hydrogen", "thinking_level": "low"}
     if not models_yaml.exists():
         return defaults
     data = yaml.safe_load(models_yaml.read_text(encoding="utf-8")) or {}
@@ -195,7 +201,6 @@ def extract_python_code(text: str) -> str:
         return ""
     blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
     if blocks:
-        # Prefer the block that defines def control(
         for b in blocks:
             if "def control(" in b:
                 return b.strip() + "\n"
@@ -217,6 +222,8 @@ def _summarize_ruleset(ruleset: RuleSet) -> str:
         except UnitConversionError:
             norm_str = f"raw {c.value} {c.unit}"
         extra = []
+        if c.entity:
+            extra.append(f"entity={c.entity}")
         if c.window_s is not None:
             extra.append(f"window_s={c.window_s:g}")
         if c.freq_min_hz is not None or c.freq_max_hz is not None:
@@ -225,39 +232,51 @@ def _summarize_ruleset(ruleset: RuleSet) -> str:
         lines.append(
             f"- [{c.id}] {c.constraint_type}: <= {c.value} {c.unit} ({norm_str}){extra_str} | p.{c.page} | \"{c.snippet}\""
         )
+    assumptions = ruleset.collect_assumptions()
+    if assumptions:
+        lines.append("Documented assumptions applied by checker:")
+        for a in assumptions:
+            lines.append(f"  * {a}")
     return "\n".join(lines)
 
 
 def _format_feedback(parent_code: str, parent_eval: CandidateEval, recent_errors: list[str]) -> str:
     lines = [
-        f"Current best candidate status: {'PASS (ALL WORKLOADS)' if parent_eval.passed else 'FAIL'} "
-        f"({parent_eval.workloads_passed}/{parent_eval.workloads_total} workloads passed)",
-        f"Metrics: energy_overhead={parent_eval.mean_energy_overhead_pct:.2f}%, "
+        f"Current best candidate status: {'PASS (ALL EVALUABLE WORKLOADS)' if parent_eval.passed else 'FAIL'} "
+        f"({parent_eval.workloads_passed}/{parent_eval.workloads_evaluable} evaluable workloads passed; "
+        f"{parent_eval.workloads_not_evaluable} not_evaluable)",
+        f"Overall metrics: energy_overhead={parent_eval.mean_energy_overhead_pct:.2f}%, "
         f"throughput_loss={parent_eval.mean_throughput_loss_pct:.2f}%, "
         f"battery_wear={parent_eval.mean_battery_wear:.6f}, "
         f"max_shaft_torque={parent_eval.max_shaft_torque_pu:.4f} pu, "
         f"worst_margin={parent_eval.worst_margin_pct if parent_eval.worst_margin_pct is not None else 'n/a'}%, "
         f"composite_score={parent_eval.composite_score:.3f}",
     ]
+    if parent_eval.family_summary:
+        for fam, fs in sorted(parent_eval.family_summary.items()):
+            lines.append(
+                f"  Family [{fam}]: status={fs['status']} ({fs['workloads_passed']}/{fs['workloads_evaluable']} eval), "
+                f"OH={fs['mean_energy_overhead_pct']:.2f}%, TP={fs['mean_throughput_loss_pct']:.2f}%, "
+                f"worst_margin={fs['worst_margin_pct']}%"
+            )
     if parent_eval.error:
         lines.append(f"Error: {parent_eval.error}")
     if parent_eval.failing_constraints:
         lines.append("Failing constraints (MUST FIX ALL TO PASS GATE):")
-        # Show up to 8 worst failures sorted by most negative margin
         sorted_fails = sorted(
             parent_eval.failing_constraints,
             key=lambda x: x["margin_pct"] if x.get("margin_pct") is not None else -1e9,
         )[:8]
         for f in sorted_fails:
             lines.append(
-                f"  - workload={f['workload']} | {f['constraint_id']} ({f['constraint_type']}): "
+                f"  - [{f.get('family', 'fast')}] {f['workload']} | {f['constraint_id']} ({f['constraint_type']}): "
                 f"measured={f['measured']:.4f} vs limit={f['limit']:.4f} {f['canonical_unit']} "
                 f"(margin={f['margin_pct']:.1f}%, p.{f['page']})"
             )
     else:
         lines.append(
-            "All constraints currently PASS. Optimize to reduce energy_overhead_pct, throughput_loss_pct, "
-            "and battery_wear while staying strictly compliant across all workloads."
+            "All evaluable constraints currently PASS. Optimize to reduce energy_overhead_pct, "
+            "throughput_loss_pct, and battery_wear while staying strictly compliant across BOTH fast and slow traces."
         )
     if recent_errors:
         lines.append("Avoid these errors seen in prior candidates:")
@@ -285,29 +304,40 @@ def _build_mutation_prompt(
         "Output ONLY a single Python code block defining `def control(obs: dict) -> dict[str, float]:`.\n"
         "HARD RULES:\n"
         "- Only `import math` and `import numpy as np` are allowed. NO other imports, NO file/network/eval/exec/dunder access.\n"
-        "- Keep the entire controller under 60 lines of clean, fast, deterministic Python (called 5,000 times per 10s trace).\n"
+        "- Keep the entire controller under 60 lines of clean, fast, deterministic Python.\n"
+        "- Must work cleanly on BOTH fast traces (20 s, dt=0.002 s, 10,000 steps) AND slow traces (30 min = 1800 s, dt=0.5 s, 3,600 steps)!\n"
+        "  ALWAYS scale time constants and slew limits by `obs['dt']` — NEVER assume dt == 0.002!\n"
         "- Must return {'gpu_floor_mw': float, 'gpu_cap_mw': float, 'battery_setpoint_mw': float} with finite floats.\n"
+        "- INITIAL CONDITION (CRITICAL — NO CHEATING AT t=0):\n"
+        "  Every trace starts with the facility at steady idle power `idle_mw = obs['idle_mw']` (also `obs['p_prev_grid_mw']` at step 0).\n"
+        "  The deterministic checker prepends steady `idle_mw` for ALL t < 0, so ANY instantaneous jump in p_grid[0] away from `idle_mw` "
+        "immediately counts against ramp_rate, max_step, and dynamic_range rules!\n"
+        "  Do NOT initialize p_target at mean training power (e.g., 70 MW). Always start p_target at `idle_mw` and ramp legally.\n"
+        "  During idle (p_raw == idle_mw), you MAY pre-load by smoothly ramping p_target upward using battery charging or dummy load (overhead counted), "
+        "or you may delay/curtail job startup with gpu_cap_mw (throughput loss counted).\n"
         "- Exact plant physics at step i:\n"
         "  1. gpu_cap = clip(gpu_cap_mw, 0, rated_mw); gpu_floor = clip(gpu_floor_mw, 0, gpu_cap)\n"
         "  2. p_capped = min(p_raw_mw, gpu_cap); p_gpu = max(p_capped, gpu_floor)\n"
-        "     (dummy load = p_gpu - p_capped increases energy_overhead_pct; curtailment = p_raw - p_capped increases throughput_loss_pct)\n"
+        "     (dummy load = p_gpu - p_capped -> energy_overhead_pct; curtailment = p_raw - p_capped -> throughput_loss_pct)\n"
         "  3. battery_setpoint_mw > 0 DISCHARGES battery (reduces p_grid); < 0 CHARGES battery (increases p_grid).\n"
         "     Clamped to [-battery_max_power_mw, +battery_max_power_mw] and SOC in [soc_min=0.10, soc_max=0.90] "
         f"(max_power={b.max_power_mw:.1f} MW, capacity={b.capacity_mwh:.2f} MWh, eta_chg={b.eta_charge:.4f}, eta_dis={b.eta_discharge:.4f}).\n"
         "  4. p_grid = p_gpu - p_batt.\n"
-        "- Available obs keys: t, dt, step, p_raw_mw, p_prev_grid_mw, rated_mw, soc, battery_energy_mwh, "
-        "battery_capacity_mwh, battery_max_power_mw, history_grid_mw (numpy 1D), history_raw_mw (numpy 1D), "
-        "rules (dict), state (mutable dict persisted across steps of one simulation).\n"
-        "- IMPORTANT CONTROL INSIGHT: To guarantee p_grid[i] == p_target exactly (within battery + GPU bounds):\n"
-        "  Compute available battery discharge headroom b_dis_max = min(b_max, max(0, (e - 0.1*cap)*eta_d/(dt/3600)))\n"
-        "  and charge headroom b_chg_max = min(b_max, max(0, (0.9*cap - e)/(eta_c*(dt/3600)))).\n"
-        "  If p_target < p_raw - b_dis_max: set gpu_cap_mw = p_target + b_dis_max, gpu_floor_mw = 0, battery_setpoint_mw = b_dis_max.\n"
-        "  Else if p_target > p_raw + b_chg_max: set gpu_floor_mw = p_target - b_chg_max, gpu_cap_mw = rated_mw, battery_setpoint_mw = -b_chg_max.\n"
-        "  Else: set gpu_floor_mw = 0, gpu_cap_mw = rated_mw, battery_setpoint_mw = p_raw - p_target.\n"
-        "  That achieves p_grid == p_target with ZERO unnecessary curtailment and MINIMUM dummy energy!\n"
-        "- Note on ramp_rate with window_s=None: checker measures max(|p_grid[i] - p_grid[i-1]| / dt) across ALL adjacent steps!\n"
-        "- Note on ramp_rate with large window_s (e.g. 60s or 600s on a 10s trace): checker measures |p_grid[-1] - p_grid[0]| / 10s!\n"
-        "  So initializing p_target near expected mean load (~0.70-0.80 * rated_mw) at step 0 avoids a big drift from idle to active!\n"
+        "- Available obs keys: t, dt, step, p_raw_mw, p_prev_grid_mw, idle_mw, rated_mw, soc, battery_energy_mwh, "
+        "battery_capacity_mwh, battery_max_power_mw, history_grid_mw, history_raw_mw, rules, state (dict persisted per run).\n"
+        "- EXACT ACTUATOR INSIGHT (prevents sudden grid spikes even when SOC hits 0.10 or 0.90 on 30-min traces):\n"
+        "  dt_h = dt / 3600.0; eta = math.sqrt(0.90)\n"
+        "  b_dis_max = min(b_max, max(0.0, (e - 0.1 * cap) * eta / dt_h))\n"
+        "  b_chg_max = min(b_max, max(0.0, (0.9 * cap - e) / (eta * dt_h)))\n"
+        "  If p_target < p_raw - b_dis_max: gpu_cap = p_target + b_dis_max; gpu_floor = 0.0; batt = b_dis_max\n"
+        "  Elif p_target > p_raw + b_chg_max: gpu_floor = p_target - b_chg_max; gpu_cap = rated; batt = -b_chg_max\n"
+        "  Else: gpu_floor = 0.0; gpu_cap = rated; batt = p_raw - p_target\n"
+        "  This guarantees p_grid == p_target on EVERY step with ZERO unnecessary curtailment and MINIMUM dummy energy!\n"
+        "- WINDOW MATH INSIGHT:\n"
+        "  A per-step slew limit |p_target[i] - p_target[i-1]| <= r_max * dt guarantees EVERY rolling ramp window (60s, 600s) "
+        "has rate <= r_max AND every max_step window W has swing <= r_max * W in O(1) time!\n"
+        "  For fluctuation_band limits (0.1-55 Hz or 5-55 Hz), a 2nd-order low-pass filter (cascaded EMA) + slew limit suppresses "
+        "high-frequency harmonics strongly without requiring huge overhead.\n"
     )
 
     user_prompt = (
@@ -319,17 +349,20 @@ def _build_mutation_prompt(
     return system_instruction, user_prompt
 
 
-def _make_hydrogen_mutator(model: str, thinking_level: str) -> MutatorFn:
+def _make_hydrogen_mutator(model: str, thinking_level: str, seed: int | None = None) -> MutatorFn:
     _load_dotenv_if_needed()
     from google import genai
 
     def _mutate(system_instruction: str, user_prompt: str, generation: int, worker_id: int) -> str:
         client = genai.Client(http_options={"api_version": "v1beta"})
+        gen_cfg: dict[str, Any] = {"thinking_level": thinking_level}
+        if seed is not None:
+            gen_cfg["seed"] = int(seed) + generation * 100 + worker_id
         interaction = client.interactions.create(
             model=model,
             input=user_prompt,
             system_instruction=system_instruction,
-            generation_config={"thinking_level": thinking_level},
+            generation_config=gen_cfg,
         )
         return extract_python_code(interaction.output_text or "")
 
@@ -358,11 +391,12 @@ def evolve_controller(
     plant_config: PlantConfig | None = None,
     budget_s: float = 75.0,
     population_size: int = 6,
-    max_generations: int = 4,
+    max_generations: int = 3,
     model: str | None = None,
     thinking_level: str | None = None,
-    eval_timeout_s: float = 6.0,
+    eval_timeout_s: float = 10.0,
     strict_review: bool = True,
+    seed: int | None = None,
     on_event: EventCallback | None = None,
     mutator_fn: MutatorFn | None = None,
 ) -> EvolutionResult:
@@ -372,6 +406,10 @@ def evolve_controller(
     eff_model = model or cfg["model"]
     eff_thinking = thinking_level or cfg["thinking_level"]
     pop_size = max(1, min(8, int(population_size)))
+
+    strategy_pool = list(MUTATION_STRATEGIES)
+    if seed is not None:
+        random.Random(seed).shuffle(strategy_pool)
 
     def emit(event_type: str, data: dict[str, Any]) -> None:
         if on_event is not None:
@@ -388,11 +426,11 @@ def evolve_controller(
             "thinking_level": eff_thinking,
             "population_size": pop_size,
             "budget_s": budget_s,
+            "seed": seed,
             "workloads": list(workloads.keys()),
         },
     )
 
-    # Check if ruleset already has blocking human-review items or zero checkable constraints
     seed_eval = evaluate_controller_sandboxed(
         base_code,
         ruleset,
@@ -413,10 +451,7 @@ def evolve_controller(
         },
     )
 
-    # Fast refusal if the ruleset itself cannot be certified (e.g., needs_human_review or 0 checkable constraints)
-    has_blocking_review = any(
-        w.get("needs_review_count", 0) > 0 for w in seed_eval.per_workload
-    )
+    has_blocking_review = any(w.get("needs_review_count", 0) > 0 for w in seed_eval.per_workload)
     has_zero_checkable = bool(seed_eval.per_workload) and all(
         w.get("checkable_count", 0) == 0 for w in seed_eval.per_workload
     )
@@ -440,6 +475,7 @@ def evolve_controller(
             total_candidates_passed=0,
             total_static_rejected=0,
             elapsed_s=time.perf_counter() - t_start,
+            seed=seed,
             refusal_reason=reason,
             history=[],
         )
@@ -462,9 +498,10 @@ def evolve_controller(
         if remaining < 6.0:
             break
 
-        # Adaptive thinking level so later generations stay comfortably inside 75s budget
         gen_thinking = "low" if (remaining < 35.0 or eff_thinking == "low") else eff_thinking
-        active_mutator = mutator_fn if mutator_fn is not None else _make_hydrogen_mutator(eff_model, gen_thinking)
+        active_mutator = (
+            mutator_fn if mutator_fn is not None else _make_hydrogen_mutator(eff_model, gen_thinking, seed=seed)
+        )
 
         emit(
             "generation_start",
@@ -477,7 +514,7 @@ def evolve_controller(
             },
         )
 
-        strategies = [MUTATION_STRATEGIES[(gen - 1 + w) % len(MUTATION_STRATEGIES)] for w in range(pop_size)]
+        strategies = [strategy_pool[(gen - 1 + w) % len(strategy_pool)] for w in range(pop_size)]
         parent_snapshot_code = best_code
         parent_snapshot_eval = best_eval
         gen_errors: list[str] = []
@@ -572,7 +609,6 @@ def evolve_controller(
         history.extend(gen_records)
         gens_completed = gen
 
-        # Select strict best across this generation (passing always beats failing)
         for rec in gen_records:
             ev = rec.eval_result
             is_better = (ev.passed and not best_eval.passed) or (
@@ -603,13 +639,11 @@ def evolve_controller(
         else:
             stagnant_gens = 0
 
-        # Early exit when we already have a strong low-overhead compliant controller and stopped improving
         if best_eval.passed and (
-            (best_eval.composite_score < 2.0 and gen >= 2) or stagnant_gens >= 1 and gen >= 2
+            (best_eval.composite_score < 1.0 and gen >= 2) or (stagnant_gens >= 1 and gen >= 2)
         ):
             break
 
-    # Guaranteed outcome resolution
     fallback_eval: CandidateEval | None = None
     if best_eval.passed:
         res = EvolutionResult(
@@ -626,6 +660,7 @@ def evolve_controller(
             total_candidates_passed=total_passed,
             total_static_rejected=total_static_rejected,
             elapsed_s=time.perf_counter() - t_start,
+            seed=seed,
             refusal_reason=None,
             history=history,
         )
@@ -661,6 +696,7 @@ def evolve_controller(
                 total_candidates_passed=total_passed + 1,
                 total_static_rejected=total_static_rejected,
                 elapsed_s=time.perf_counter() - t_start,
+                seed=seed,
                 refusal_reason=None,
                 history=history,
             )
@@ -668,6 +704,7 @@ def evolve_controller(
             fail_summary = "; ".join(
                 f"{f['workload']}:{f['constraint_id']}({f['measured']:.2f}>{f['limit']:.2f}{f['canonical_unit']})"
                 for f in fallback_eval.failing_constraints[:4]
+                if f.get("measured") is not None and f.get("limit") is not None
             )
             reason = (
                 f"Refused: no evolved controller passed within {budget_s:.0f}s budget and conservative "
@@ -687,6 +724,7 @@ def evolve_controller(
                 total_candidates_passed=total_passed,
                 total_static_rejected=total_static_rejected,
                 elapsed_s=time.perf_counter() - t_start,
+                seed=seed,
                 refusal_reason=reason,
                 history=history,
             )

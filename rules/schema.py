@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+import re
 from typing import Any
 
 
@@ -28,6 +29,77 @@ CHECKABLE_CONSTRAINT_TYPES = frozenset(
     }
 )
 
+# Documented checker/constraint defaults (always attached to Constraint.assumptions and certificates)
+DEFAULT_PER_MINUTE_RAMP_WINDOW_S = 60.0
+DEFAULT_SUBSYNCHRONOUS_BAND_HZ: tuple[float, float] = (5.0, 55.0)
+
+_SUBSYNCHRONOUS_RE = re.compile(r"sub[-\s]?synchronous|\bssti\b|\bssci\b", flags=re.IGNORECASE)
+
+# Ordered utility / entity canonicalization patterns
+ENTITY_PATTERNS: list[tuple[str, str]] = [
+    ("ERCOT", r"\bercot\b"),
+    ("LIPA", r"\blipa\b|long island power|pseg\s+long\s+island|lipasystem"),
+    ("AESO", r"\baeso\b|alberta electric"),
+    ("ATC", r"\batc\b|american transmission"),
+    ("Southern", r"\bsouthern\s+company\b|\bsouthern\b|\bsct\b|\bsoco\b"),
+    ("CAISO", r"\bcaiso\b|california iso"),
+    ("IESO", r"\bieso\b|independent electricity system operator|largecomputationalloads"),
+    ("MISO", r"\bmiso\b|ameren|\bllwg\b"),
+    ("PJM", r"\bpjm\b"),
+    ("NYISO", r"\bnyiso\b"),
+    ("ISO-NE", r"\biso-ne\b|iso new england"),
+    ("SPP", r"\bspp\b|southwest power pool"),
+    ("AEP", r"\baep\b|american electric power"),
+    ("Dominion", r"\bdominion\b"),
+    ("PG&E", r"\bpg&e\b|pacific gas"),
+    ("Oncor", r"\boncor\b"),
+    ("Duke", r"\bduke\s+energy\b"),
+    ("BPA", r"\bbpa\b|bonneville power"),
+    ("NERC", r"\bnerc\b"),
+]
+
+
+def canonicalize_entity(
+    entity: str = "",
+    source_section: str = "",
+    snippet: str = "",
+    doc_context: str = "",
+) -> str:
+    """Normalize a utility/ISO entity name deterministically from explicit or contextual fields."""
+    raw_ent = (entity or "").strip()
+    if raw_ent:
+        for canonical, pat in ENTITY_PATTERNS:
+            if re.search(pat, raw_ent, flags=re.IGNORECASE):
+                return canonical
+        return raw_ent
+
+    sec = (source_section or "").strip()
+    if sec:
+        for canonical, pat in ENTITY_PATTERNS:
+            if re.search(pat, sec, flags=re.IGNORECASE):
+                return canonical
+
+    head = (snippet or "").strip()[:80]
+    if head:
+        for canonical, pat in ENTITY_PATTERNS:
+            if re.search(pat, head, flags=re.IGNORECASE):
+                return canonical
+
+    ctx = (doc_context or "").strip()
+    if ctx:
+        for canonical, pat in ENTITY_PATTERNS:
+            if re.search(pat, ctx, flags=re.IGNORECASE):
+                return canonical
+        if "large-load-technical-requirements-straw-proposal" in ctx.lower():
+            return "CAISO"
+
+    return ""
+
+
+def _append_unique(items: list[str], msg: str) -> None:
+    if msg and msg not in items:
+        items.append(msg)
+
 
 @dataclass
 class Constraint:
@@ -41,6 +113,7 @@ class Constraint:
     checkable: bool = True
     confidence: float | None = None
     id: str = ""
+    entity: str = ""
     window_s: float | None = None
     freq_min_hz: float | None = None
     freq_max_hz: float | None = None
@@ -49,6 +122,7 @@ class Constraint:
     needs_human_review: bool = False
     conflict_flag: bool = False
     notes: str = ""
+    assumptions: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if isinstance(self.constraint_type, ConstraintType):
@@ -84,6 +158,72 @@ class Constraint:
         ):
             raise ValueError("freq_max_hz must be >= freq_min_hz")
 
+        self.entity = str(self.entity or "").strip()
+        if self.assumptions is None:
+            self.assumptions = []
+        else:
+            dedup_a: list[str] = []
+            for a in self.assumptions:
+                _append_unique(dedup_a, str(a).strip())
+            self.assumptions = dedup_a
+
+        # Apply documented, transparent normalization assumptions for checkable rules
+        if self.checkable and self.value is not None:
+            from rules.units import is_per_minute_ramp_unit, parse_window_range_s
+
+            # 1. Step/ramp/range limit with a stated window range ("4-6 second interval"):
+            #    use the larger (more conservative) bound and record the range.
+            if (
+                self.constraint_type
+                in (
+                    ConstraintType.MAX_STEP.value,
+                    ConstraintType.RAMP_RATE.value,
+                    ConstraintType.DYNAMIC_RANGE.value,
+                )
+                and self.window_s is None
+            ):
+                win_range = parse_window_range_s(f"{self.snippet} {self.notes}")
+                if win_range is not None:
+                    lo_s, hi_s = win_range
+                    self.window_s = hi_s
+                    _append_unique(
+                        self.assumptions,
+                        f"Window range {lo_s:g}-{hi_s:g} s stated in source; using upper bound {hi_s:g} s.",
+                    )
+
+            # 2. Per-minute ramp rate (e.g. MW/min, %/min) with no stated window:
+            #    use a 60 s rolling window and record as an assumption.
+            if (
+                self.constraint_type == ConstraintType.RAMP_RATE.value
+                and self.window_s is None
+                and is_per_minute_ramp_unit(self.unit)
+            ):
+                self.window_s = DEFAULT_PER_MINUTE_RAMP_WINDOW_S
+                _append_unique(
+                    self.assumptions,
+                    "Assumed 60 s rolling window for per-minute ramp limit (no window stated in source).",
+                )
+
+            # 3. Sub-synchronous oscillation limit without explicit Hz bounds (e.g. IESO p.8):
+            #    assume 5.0-55.0 Hz SSTI/SSCI sub-synchronous band and record as an assumption.
+            unit_low = self.unit.strip().lower()
+            is_pu_torque = unit_low in {"pu", "p.u.", "pu torque", "p.u. torque"}
+            if (
+                self.constraint_type == ConstraintType.FLUCTUATION_BAND.value
+                and not is_pu_torque
+                and self.freq_min_hz is None
+                and self.freq_max_hz is None
+                and _SUBSYNCHRONOUS_RE.search(f"{self.snippet} {self.notes}")
+            ):
+                lo_hz, hi_hz = DEFAULT_SUBSYNCHRONOUS_BAND_HZ
+                self.freq_min_hz = lo_hz
+                self.freq_max_hz = hi_hz
+                _append_unique(
+                    self.assumptions,
+                    f"Sub-synchronous frequency band not numerically specified in source; assumed {lo_hz:g}-{hi_hz:g} Hz "
+                    "(60 Hz SSTI/SSCI band covering IEEE FBM torsional modes 15.7-47.5 Hz).",
+                )
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -98,6 +238,7 @@ class Constraint:
             "checkable",
             "confidence",
             "id",
+            "entity",
             "window_s",
             "freq_min_hz",
             "freq_max_hz",
@@ -106,8 +247,11 @@ class Constraint:
             "needs_human_review",
             "conflict_flag",
             "notes",
+            "assumptions",
         }
         filtered = {k: v for k, v in data.items() if k in allowed}
+        if "assumptions" in filtered and filtered["assumptions"] is not None:
+            filtered["assumptions"] = list(filtered["assumptions"])
         return cls(**filtered)
 
 
@@ -126,10 +270,18 @@ class RuleSet:
             if not c.id:
                 c.id = f"{c.constraint_type}_{idx}"
 
+    def collect_assumptions(self) -> list[str]:
+        out: list[str] = []
+        for c in self.constraints:
+            for a in c.assumptions:
+                _append_unique(out, a)
+        return out
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "source_name": self.source_name,
             "rated_mw": self.rated_mw,
+            "assumptions": self.collect_assumptions(),
             "constraints": [c.to_dict() for c in self.constraints],
         }
 
@@ -144,12 +296,12 @@ class RuleSet:
 
 @dataclass
 class RuleCheckResult:
-    """Deterministic pass/fail outcome with margin for one constraint."""
+    """Deterministic pass/fail/not_evaluable outcome with margin for one constraint."""
 
     constraint_id: str
     constraint_type: str
-    status: str  # "pass" | "fail" | "uncheckable" | "needs_review" | "error"
-    passed: bool
+    status: str  # "pass" | "fail" | "not_evaluable" | "uncheckable" | "needs_review" | "error"
+    passed: bool | None  # None when status == "not_evaluable"
     measured: float | None
     limit: float | None
     margin: float | None  # limit - measured; >= 0 means compliant, < 0 means violation
@@ -158,7 +310,9 @@ class RuleCheckResult:
     page: int
     snippet: str
     confidence: float | None = None
+    entity: str = ""
     details: str = ""
+    assumptions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -166,7 +320,7 @@ class RuleCheckResult:
 
 @dataclass
 class ComplianceReport:
-    """Aggregate deterministic compliance verification report."""
+    """Aggregate deterministic compliance verification report (certificate backing)."""
 
     passed: bool
     checkable_count: int
@@ -178,11 +332,18 @@ class ComplianceReport:
     worst_constraint_id: str | None
     results: list[RuleCheckResult] = field(default_factory=list)
     refusal_reason: str | None = None
+    status: str = "pass"  # "pass" | "fail" | "not_evaluable" | "refused"
+    evaluable_count: int = 0
+    not_evaluable_count: int = 0
+    assumptions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "status": self.status,
             "passed": self.passed,
             "checkable_count": self.checkable_count,
+            "evaluable_count": self.evaluable_count,
+            "not_evaluable_count": self.not_evaluable_count,
             "passed_count": self.passed_count,
             "failed_count": self.failed_count,
             "uncheckable_count": self.uncheckable_count,
@@ -190,5 +351,6 @@ class ComplianceReport:
             "worst_margin_pct": self.worst_margin_pct,
             "worst_constraint_id": self.worst_constraint_id,
             "refusal_reason": self.refusal_reason,
+            "assumptions": list(self.assumptions),
             "results": [r.to_dict() for r in self.results],
         }

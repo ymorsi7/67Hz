@@ -2,7 +2,18 @@
 
 Pure Python + numpy (no scipy, no AI). Evaluates normalized checkable constraints
 against a simulated or raw net grid power trace and IEEE FBM shaft response,
-returning exact pass/fail verdicts and margins.
+returning exact pass/fail/not_evaluable verdicts, margins, and certificate assumptions.
+
+Validity invariants:
+- If a trace is shorter than 2x a rule's measurement window, that rule returns
+  status="not_evaluable" (passed=None) — never pass or fail.
+- Every simulation starts with the facility at idle; check_compliance() passes
+  sim_result.initial_grid_mw so check_trace() prepends the pre-t=0 idle state,
+  ensuring any t=0 step jump counts against ramp, step, and dynamic range rules.
+- Per-minute ramp rates without an explicit window assume a 60 s rolling window
+  (recorded on Constraint.assumptions and propagated to the certificate).
+- Sub-synchronous fluctuation limits without Hz bounds assume 5.0-55.0 Hz
+  (recorded on Constraint.assumptions and propagated to the certificate).
 """
 
 from __future__ import annotations
@@ -24,6 +35,7 @@ from sim.plant import SimulationResult
 from sim.shaft import ShaftResponse
 
 EXACT_LIMIT_REL_TOL = 1e-9
+MIN_WINDOW_MULTIPLIER = 2.0
 
 
 def _sliding_window_range_max(arr: np.ndarray, window_steps: int) -> float:
@@ -32,7 +44,6 @@ def _sliding_window_range_max(arr: np.ndarray, window_steps: int) -> float:
     if n < 2:
         return 0.0
     k = min(max(1, int(window_steps)), n - 1)
-    # Window spans [i - k, i], i.e., width k + 1 samples
     width = k + 1
     dq_max: deque[int] = deque()
     dq_min: deque[int] = deque()
@@ -59,44 +70,69 @@ def _sliding_window_range_max(arr: np.ndarray, window_steps: int) -> float:
     return float(best)
 
 
-def _measure_ramp_rate(p_grid_mw: np.ndarray, dt_s: float, window_s: float | None) -> float:
+def _prepend_idle(arr: np.ndarray, initial_power_mw: float | None, pad_steps: int = 1) -> np.ndarray:
+    """Prepend steady pre-t=0 facility idle power so t=0 jumps count against time-domain rules."""
+    if initial_power_mw is None or pad_steps <= 0:
+        return arr
+    pad = np.full(int(pad_steps), float(initial_power_mw), dtype=np.float64)
+    return np.concatenate((pad, arr))
+
+
+def _measure_ramp_rate(
+    p_grid_mw: np.ndarray,
+    dt_s: float,
+    window_s: float | None,
+    initial_power_mw: float | None = None,
+) -> float:
     """Maximum ramp rate in MW/s over dt_s or an explicit rolling window_s."""
     n = len(p_grid_mw)
     if n < 2:
         return 0.0
     if window_s is None or window_s <= dt_s + 1e-12:
-        diffs = np.abs(np.diff(p_grid_mw))
+        arr = _prepend_idle(p_grid_mw, initial_power_mw, pad_steps=1)
+        diffs = np.abs(np.diff(arr))
         return float(np.max(diffs) / dt_s)
 
     k = max(1, int(round(window_s / dt_s)))
-    if k >= n:
-        return float(abs(p_grid_mw[-1] - p_grid_mw[0]) / ((n - 1) * dt_s))
-    diffs = np.abs(p_grid_mw[k:] - p_grid_mw[:-k])
+    arr = _prepend_idle(p_grid_mw, initial_power_mw, pad_steps=k)
+    diffs = np.abs(arr[k:] - arr[:-k])
     return float(np.max(diffs) / (k * dt_s))
 
 
-def _measure_max_step(p_grid_mw: np.ndarray, dt_s: float, window_s: float | None) -> float:
+def _measure_max_step(
+    p_grid_mw: np.ndarray,
+    dt_s: float,
+    window_s: float | None,
+    initial_power_mw: float | None = None,
+) -> float:
     """Maximum step change in MW (single step when window_s is None, else max window swing)."""
     n = len(p_grid_mw)
     if n < 2:
         return 0.0
     if window_s is None or window_s <= dt_s + 1e-12:
-        return float(np.max(np.abs(np.diff(p_grid_mw))))
+        arr = _prepend_idle(p_grid_mw, initial_power_mw, pad_steps=1)
+        return float(np.max(np.abs(np.diff(arr))))
     k = max(1, int(round(window_s / dt_s)))
-    return _sliding_window_range_max(p_grid_mw, k)
+    arr = _prepend_idle(p_grid_mw, initial_power_mw, pad_steps=k)
+    return _sliding_window_range_max(arr, k)
 
 
-def _measure_dynamic_range(p_grid_mw: np.ndarray, dt_s: float, window_s: float | None) -> float:
+def _measure_dynamic_range(
+    p_grid_mw: np.ndarray,
+    dt_s: float,
+    window_s: float | None,
+    initial_power_mw: float | None = None,
+) -> float:
     """Maximum peak-to-peak power swing in MW (full trace or sliding window)."""
     n = len(p_grid_mw)
     if n < 2:
         return 0.0
     if window_s is None:
-        return float(np.max(p_grid_mw) - np.min(p_grid_mw))
+        arr = _prepend_idle(p_grid_mw, initial_power_mw, pad_steps=1)
+        return float(np.max(arr) - np.min(arr))
     k = max(1, int(round(window_s / dt_s)))
-    if k >= n - 1:
-        return float(np.max(p_grid_mw) - np.min(p_grid_mw))
-    return _sliding_window_range_max(p_grid_mw, k)
+    arr = _prepend_idle(p_grid_mw, initial_power_mw, pad_steps=k)
+    return _sliding_window_range_max(arr, k)
 
 
 def _measure_fluctuation_band_mw(
@@ -121,7 +157,6 @@ def _measure_fluctuation_band_mw(
     f_lo = 0.0 if freq_min_hz is None else float(freq_min_hz)
     f_hi = float("inf") if freq_max_hz is None else float(freq_max_hz)
 
-    # Always exclude DC (freq == 0) unless explicitly requested
     mask = (freqs > 0.0) & (freqs >= f_lo - 1e-12) & (freqs <= f_hi + 1e-12)
     if not np.any(mask):
         return 0.0, 0.0
@@ -139,7 +174,10 @@ def _evaluate_single_constraint(
     rated_mw: float,
     shaft: ShaftResponse | None,
     strict_review: bool,
+    initial_power_mw: float | None = None,
 ) -> RuleCheckResult:
+    assumptions = list(constraint.assumptions)
+
     if constraint.needs_human_review and strict_review:
         return RuleCheckResult(
             constraint_id=constraint.id,
@@ -154,7 +192,9 @@ def _evaluate_single_constraint(
             page=constraint.page,
             snippet=constraint.snippet,
             confidence=constraint.confidence,
+            entity=constraint.entity,
             details="Flagged for human review; cannot certify automatically.",
+            assumptions=assumptions,
         )
 
     if not constraint.checkable or constraint.value is None:
@@ -171,7 +211,9 @@ def _evaluate_single_constraint(
             page=constraint.page,
             snippet=constraint.snippet,
             confidence=constraint.confidence,
+            entity=constraint.entity,
             details="Qualitative or uncheckable constraint; preserved for audit.",
+            assumptions=assumptions,
         )
 
     try:
@@ -190,7 +232,9 @@ def _evaluate_single_constraint(
             page=constraint.page,
             snippet=constraint.snippet,
             confidence=constraint.confidence,
+            entity=constraint.entity,
             details=f"Unit normalization error: {exc}",
+            assumptions=assumptions,
         )
 
     if limit < 0.0:
@@ -207,21 +251,50 @@ def _evaluate_single_constraint(
             page=constraint.page,
             snippet=constraint.snippet,
             confidence=constraint.confidence,
+            entity=constraint.entity,
             details=f"Normalized limit must be non-negative, got {limit}",
+            assumptions=assumptions,
         )
 
     ctype = constraint.constraint_type
+    trace_duration_s = float(len(p_grid_mw)) * float(dt_s)
+
+    # Window validity gate: trace MUST be at least 2x the rule's window; never pass or fail otherwise.
+    if constraint.window_s is not None and constraint.window_s > 0.0:
+        min_required_s = MIN_WINDOW_MULTIPLIER * float(constraint.window_s)
+        if trace_duration_s < min_required_s - 1e-9:
+            return RuleCheckResult(
+                constraint_id=constraint.id,
+                constraint_type=ctype,
+                status="not_evaluable",
+                passed=None,
+                measured=None,
+                limit=float(limit),
+                margin=None,
+                margin_pct=None,
+                canonical_unit=canon_unit,
+                page=constraint.page,
+                snippet=constraint.snippet,
+                confidence=constraint.confidence,
+                entity=constraint.entity,
+                details=(
+                    f"Not evaluable on this trace: duration {trace_duration_s:g}s "
+                    f"< 2x rule window ({min_required_s:g}s for {constraint.window_s:g}s window)."
+                ),
+                assumptions=assumptions,
+            )
+
     details = ""
     if ctype == ConstraintType.RAMP_RATE.value:
-        measured = _measure_ramp_rate(p_grid_mw, dt_s, constraint.window_s)
+        measured = _measure_ramp_rate(p_grid_mw, dt_s, constraint.window_s, initial_power_mw=initial_power_mw)
         win_txt = f"{constraint.window_s:g}s window" if constraint.window_s else f"dt={dt_s:g}s step"
         details = f"Max ramp rate ({win_txt}): {measured:.4f} vs limit {limit:.4f} MW/s"
     elif ctype == ConstraintType.MAX_STEP.value:
-        measured = _measure_max_step(p_grid_mw, dt_s, constraint.window_s)
+        measured = _measure_max_step(p_grid_mw, dt_s, constraint.window_s, initial_power_mw=initial_power_mw)
         win_txt = f"{constraint.window_s:g}s window" if constraint.window_s else "single-step"
         details = f"Max step ({win_txt}): {measured:.4f} vs limit {limit:.4f} MW"
     elif ctype == ConstraintType.DYNAMIC_RANGE.value:
-        measured = _measure_dynamic_range(p_grid_mw, dt_s, constraint.window_s)
+        measured = _measure_dynamic_range(p_grid_mw, dt_s, constraint.window_s, initial_power_mw=initial_power_mw)
         win_txt = f"{constraint.window_s:g}s window" if constraint.window_s else "full trace"
         details = f"Dynamic range ({win_txt}): {measured:.4f} vs limit {limit:.4f} MW"
     elif ctype == ConstraintType.FLUCTUATION_BAND.value:
@@ -240,7 +313,9 @@ def _evaluate_single_constraint(
                     page=constraint.page,
                     snippet=constraint.snippet,
                     confidence=constraint.confidence,
+                    entity=constraint.entity,
                     details="Shaft response required to check pu torsional torque constraint.",
+                    assumptions=assumptions,
                 )
             measured = float(shaft.max_torque_pu)
             details = (
@@ -248,13 +323,69 @@ def _evaluate_single_constraint(
                 f"{measured:.4f} vs limit {limit:.4f} pu"
             )
         else:
+            f_nyq = 0.5 / float(dt_s)
+            f_lo = 0.0 if constraint.freq_min_hz is None else float(constraint.freq_min_hz)
+            f_hi = float("inf") if constraint.freq_max_hz is None else float(constraint.freq_max_hz)
+
+            # Check Nyquist & minimum cycles observability so slow traces never vacuously pass high-Hz bands
+            if f_lo > 0.0 and f_nyq <= f_lo + 1e-12:
+                hi_txt = f"{f_hi:g}" if f_hi < float("inf") else "inf"
+                return RuleCheckResult(
+                    constraint_id=constraint.id,
+                    constraint_type=ctype,
+                    status="not_evaluable",
+                    passed=None,
+                    measured=None,
+                    limit=float(limit),
+                    margin=None,
+                    margin_pct=None,
+                    canonical_unit=canon_unit,
+                    page=constraint.page,
+                    snippet=constraint.snippet,
+                    confidence=constraint.confidence,
+                    entity=constraint.entity,
+                    details=(
+                        f"Not evaluable on this trace: band [{f_lo:g}, {hi_txt}] Hz "
+                        f"is above trace Nyquist frequency ({f_nyq:g} Hz at dt={dt_s:g}s)."
+                    ),
+                    assumptions=assumptions,
+                )
+            if f_lo > 0.0 and trace_duration_s < (2.0 / f_lo) - 1e-9:
+                return RuleCheckResult(
+                    constraint_id=constraint.id,
+                    constraint_type=ctype,
+                    status="not_evaluable",
+                    passed=None,
+                    measured=None,
+                    limit=float(limit),
+                    margin=None,
+                    margin_pct=None,
+                    canonical_unit=canon_unit,
+                    page=constraint.page,
+                    snippet=constraint.snippet,
+                    confidence=constraint.confidence,
+                    entity=constraint.entity,
+                    details=(
+                        f"Not evaluable on this trace: duration {trace_duration_s:g}s "
+                        f"< 2 cycles of {f_lo:g} Hz ({2.0 / f_lo:g}s)."
+                    ),
+                    assumptions=assumptions,
+                )
+
+            if f_hi < float("inf") and f_nyq < f_hi - 1e-9:
+                note = (
+                    f"Partial band [{f_lo:g}, {f_nyq:g}] Hz evaluated on dt={dt_s:g}s trace "
+                    f"(upper bound {f_hi:g} Hz exceeds Nyquist {f_nyq:g} Hz)."
+                )
+                if note not in assumptions:
+                    assumptions.append(note)
+
             measured, peak_hz = _measure_fluctuation_band_mw(
                 p_grid_mw, dt_s, constraint.freq_min_hz, constraint.freq_max_hz
             )
-            lo = 0.0 if constraint.freq_min_hz is None else constraint.freq_min_hz
             hi_txt = f"{constraint.freq_max_hz:g}" if constraint.freq_max_hz is not None else "inf"
             details = (
-                f"Band [{lo:g}, {hi_txt}] Hz peak amplitude at {peak_hz:.2f} Hz: "
+                f"Band [{f_lo:g}, {hi_txt}] Hz peak amplitude at {peak_hz:.2f} Hz: "
                 f"{measured:.4f} vs limit {limit:.4f} MW"
             )
     else:
@@ -271,7 +402,9 @@ def _evaluate_single_constraint(
             page=constraint.page,
             snippet=constraint.snippet,
             confidence=constraint.confidence,
+            entity=constraint.entity,
             details="Unsupported constraint type for deterministic check.",
+            assumptions=assumptions,
         )
 
     tol = EXACT_LIMIT_REL_TOL * max(1.0, abs(limit))
@@ -293,7 +426,9 @@ def _evaluate_single_constraint(
         page=constraint.page,
         snippet=constraint.snippet,
         confidence=constraint.confidence,
+        entity=constraint.entity,
         details=details,
+        assumptions=assumptions,
     )
 
 
@@ -303,6 +438,7 @@ def check_trace(
     ruleset: RuleSet,
     shaft: ShaftResponse | None = None,
     strict_review: bool = True,
+    initial_power_mw: float | None = None,
 ) -> ComplianceReport:
     """Deterministically evaluate a RuleSet against a grid power waveform (MW)."""
     arr = np.asarray(p_grid_mw, dtype=np.float64)
@@ -313,10 +449,13 @@ def check_trace(
 
     results: list[RuleCheckResult] = []
     checkable_count = 0
+    evaluable_count = 0
+    not_evaluable_count = 0
     passed_count = 0
     failed_count = 0
     uncheckable_count = 0
     needs_review_count = 0
+    all_assumptions: list[str] = []
 
     worst_margin_pct: float | None = None
     worst_id: str | None = None
@@ -329,14 +468,23 @@ def check_trace(
             rated_mw=ruleset.rated_mw,
             shaft=shaft,
             strict_review=strict_review,
+            initial_power_mw=initial_power_mw,
         )
         results.append(res)
+        for a in res.assumptions:
+            if a not in all_assumptions:
+                all_assumptions.append(a)
+
         if res.status == "uncheckable":
             uncheckable_count += 1
         elif res.status == "needs_review":
             needs_review_count += 1
+        elif res.status == "not_evaluable":
+            checkable_count += 1
+            not_evaluable_count += 1
         else:
             checkable_count += 1
+            evaluable_count += 1
             if res.passed:
                 passed_count += 1
             else:
@@ -348,20 +496,34 @@ def check_trace(
 
     refusal_reason: str | None = None
     if needs_review_count > 0 and strict_review:
+        status = "refused"
         overall_passed = False
         refusal_reason = f"{needs_review_count} constraint(s) require human review before certification."
     elif failed_count > 0:
+        status = "fail"
         overall_passed = False
         refusal_reason = f"{failed_count} checkable constraint(s) violated (worst: {worst_id})."
     elif checkable_count == 0:
+        status = "refused"
         overall_passed = False
         refusal_reason = "No checkable numeric constraints present; refusing unverified pass."
+    elif evaluable_count == 0:
+        status = "not_evaluable"
+        overall_passed = False
+        refusal_reason = (
+            f"All {not_evaluable_count} checkable constraint(s) are not_evaluable on this trace "
+            f"(duration {len(arr) * dt_s:g}s, dt={dt_s:g}s)."
+        )
     else:
+        status = "pass"
         overall_passed = True
 
     return ComplianceReport(
+        status=status,
         passed=overall_passed,
         checkable_count=checkable_count,
+        evaluable_count=evaluable_count,
+        not_evaluable_count=not_evaluable_count,
         passed_count=passed_count,
         failed_count=failed_count,
         uncheckable_count=uncheckable_count,
@@ -370,6 +532,7 @@ def check_trace(
         worst_constraint_id=worst_id,
         results=results,
         refusal_reason=refusal_reason,
+        assumptions=all_assumptions,
     )
 
 
@@ -378,11 +541,12 @@ def check_compliance(
     ruleset: RuleSet,
     strict_review: bool = True,
 ) -> ComplianceReport:
-    """Deterministically check a full SimulationResult against a RuleSet."""
+    """Deterministically check a full SimulationResult against a RuleSet (prepending facility idle)."""
     return check_trace(
         p_grid_mw=sim_result.p_grid_mw,
         dt_s=sim_result.dt_s,
         ruleset=ruleset,
         shaft=sim_result.shaft,
         strict_review=strict_review,
+        initial_power_mw=sim_result.initial_grid_mw,
     )

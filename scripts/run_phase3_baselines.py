@@ -1,31 +1,47 @@
-"""Run Phase 3 live benchmark: Uncontrolled, B1 (90% floor), B0 (Neon 1-shot), and GridSafe Designer.
+"""Run Phase 3b live benchmark: Noop, B1, B0 (full PDF, 3 seeds), B3 (random search, 3 seeds), and GridSafe (3 seeds).
 
-Evaluates every dev utility profile (CAISO, ERCOT, ATC, AESO, Southern-dev, LIPA)
-and every held-out utility profile (Southern held-out + any newly added specs PDFs)
-using the exact same sandboxed deterministic checker on the exact same default
-workloads. Saves full results and winning controllers to eval/cache/phase3_results.json.
+Evaluates every dev utility profile (7) and every held-out utility profile (4)
+on BOTH scenario families:
+  - Fast family: 4 traces (20 s @ 0.002 s = 2x largest 10 s fast-rule window)
+  - Slow family: 3 traces (30 min = 1800 s @ 0.5 s: idle, job start, checkpoints, job stop)
+Every trace starts at facility idle, prepended by the checker so t=0 jumps count.
+Runs B0, B3 (matched simulator evaluation budget), and GridSafe 3 times per profile
+with distinct seeds [101, 202, 303] and reports pass rates, per-family scores,
+overhead/throughput trade-offs, and unseen random-suite (N=20) generalization.
+Saves full results to eval/cache/phase3_results.json.
 """
 
 from __future__ import annotations
 
+import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
 import threading
+import time
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from evolve.baselines import run_b0_baseline, run_b1_baseline, run_uncontrolled_baseline
+from eval.random_suite import sample_random_suite
+from evolve.baselines import (
+    resolve_pdf_path,
+    run_b0_baseline,
+    run_b1_baseline,
+    run_b3_baseline,
+    run_uncontrolled_baseline,
+)
 from evolve.loop import evolve_controller
+from evolve.sandbox import evaluate_controller_sandboxed
 from rules.profiles import UtilityProfile, load_utility_profiles
-from workload.synth import preset_workloads
+from workload.synth import all_preset_workloads
 
 OUT_PATH = REPO_ROOT / "eval" / "cache" / "phase3_results.json"
+DEFAULT_SEEDS = (101, 202, 303)
 _PRINT_LOCK = threading.Lock()
 
 
@@ -34,125 +50,287 @@ def _log(msg: str) -> None:
         print(msg, flush=True)
 
 
-def _fmt_ev(ev: dict[str, Any] | None) -> str:
-    if ev is None:
-        return "REFUSED"
-    status = "PASS" if ev["passed"] else f"FAIL({ev['workloads_passed']}/{ev['workloads_total']})"
-    oh = ev["mean_energy_overhead_pct"]
-    tp = ev["mean_throughput_loss_pct"]
-    wear = ev["mean_battery_wear"]
-    return f"{status:10s} OH={oh:5.1f}% TP={tp:4.1f}% wear={wear:.5f}"
+def _fam_tag(ev: dict[str, Any] | None, fam: str) -> str:
+    if not ev:
+        return "REF"
+    fs = (ev.get("family_summary") or {}).get(fam)
+    if not fs:
+        return "-"
+    st = fs.get("status")
+    if st == "not_evaluable":
+        return "N/E"
+    if st == "pass":
+        return f"PASS({fs['workloads_passed']}/{fs['workloads_evaluable']})"
+    return f"FAIL({fs['workloads_passed']}/{fs['workloads_evaluable']})"
+
+
+def _aggregate_seed_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize multi-seed reliability runs (pass rate, mean metrics on passing runs, best run)."""
+    n = len(runs)
+    n_pass = sum(1 for r in runs if r["passed"])
+    passing = [r for r in runs if r["passed"] and r.get("eval_result")]
+    all_valid = [r for r in runs if r.get("eval_result")]
+
+    def _mean(items: list[dict[str, Any]], key: str) -> float | None:
+        if not items:
+            return None
+        return round(sum(float(x["eval_result"][key]) for x in items) / len(items), 3)
+
+    def _fam_pass_rate(fam: str) -> dict[str, Any]:
+        statuses = [
+            (r["eval_result"].get("family_summary") or {}).get(fam, {}).get("status")
+            for r in runs
+            if r.get("eval_result")
+        ]
+        if statuses and all(s == "not_evaluable" for s in statuses):
+            return {"status": "not_evaluable", "passed": 0, "total": n}
+        p_cnt = sum(1 for s in statuses if s == "pass")
+        return {"status": "pass" if p_cnt == n else ("partial" if p_cnt > 0 else "fail"), "passed": p_cnt, "total": n}
+
+    # Select best representative run (passing beats failing, then lowest composite score)
+    best_run = min(
+        all_valid,
+        key=lambda r: (0 if r["passed"] else 1, float(r["eval_result"]["composite_score"])),
+    ) if all_valid else None
+
+    return {
+        "runs": n,
+        "passed_runs": n_pass,
+        "pass_rate": round(n_pass / max(1, n), 4),
+        "fast_reliability": _fam_pass_rate("fast"),
+        "slow_reliability": _fam_pass_rate("slow"),
+        "mean_overhead_pct_all": _mean(all_valid, "mean_energy_overhead_pct"),
+        "mean_throughput_loss_pct_all": _mean(all_valid, "mean_throughput_loss_pct"),
+        "mean_wear_all": _mean(all_valid, "mean_battery_wear"),
+        "mean_overhead_pct_pass": _mean(passing, "mean_energy_overhead_pct"),
+        "mean_throughput_loss_pct_pass": _mean(passing, "mean_throughput_loss_pct"),
+        "mean_wear_pass": _mean(passing, "mean_battery_wear"),
+        "mean_elapsed_s": round(sum(float(r["elapsed_s"]) for r in runs) / max(1, n), 2),
+        "best_seed": best_run["seed"] if best_run else None,
+        "best_code": best_run["code"] if best_run else None,
+        "best_eval": best_run["eval_result"] if best_run else None,
+    }
 
 
 def _run_one_profile(
     prof: UtilityProfile,
     workloads: dict[str, Any],
+    random_workloads: dict[str, Any],
     *,
+    seeds: tuple[int, ...],
     population_size: int,
     budget_s: float,
     max_generations: int,
 ) -> dict[str, Any]:
     tag = f"[{prof.split}:{prof.profile_id}]"
-    _log(f"{tag} Starting ({prof.utility}, {len(prof.ruleset.constraints)} checkable rule(s))...")
+    t_prof0 = time.perf_counter()
+    _log(
+        f"{tag} Starting ({prof.utility}, {len(prof.ruleset.constraints)} rule(s), "
+        f"seeds={list(seeds)}, workloads={len(workloads)})..."
+    )
 
     noop = run_uncontrolled_baseline(prof.ruleset, workloads)
     b1 = run_b1_baseline(prof.ruleset, workloads)
 
-    pdf_path = REPO_ROOT / prof.source_file
-    # Run B0 (single-shot Neon) and GridSafe Designer (parallel Hydrogen) concurrently for this profile
-    with ThreadPoolExecutor(max_workers=2) as subpool:
-        b0_fut = subpool.submit(
-            run_b0_baseline,
-            prof.ruleset,
-            workloads,
-            utility_name=prof.utility,
-            pdf_path=pdf_path if pdf_path.exists() else None,
-            pages=prof.pages,
-        )
+    pdf_path = resolve_pdf_path(REPO_ROOT / prof.source_file)
+    if pdf_path is None:
+        raise FileNotFoundError(f"Missing PDF for {prof.profile_id}: {prof.source_file}")
 
-        def _on_ev(e: dict[str, Any]) -> None:
-            if e["event"] == "new_best":
-                _log(
-                    f"  {tag} gen {e['generation']} w{e['worker_id']} ({e['strategy']}): "
-                    f"pass={e['passed']} OH={e['overhead_pct']}% TP={e['throughput_loss_pct']}% "
-                    f"wear={e['battery_wear']:.5f} score={e['score']}"
-                )
+    b0_runs: list[dict[str, Any]] = []
+    gs_runs: list[dict[str, Any]] = []
+    b3_runs: list[dict[str, Any]] = []
 
-        gs_fut = subpool.submit(
-            evolve_controller,
-            prof.ruleset,
-            workloads,
-            population_size=population_size,
-            budget_s=budget_s,
-            max_generations=max_generations,
-            on_event=_on_ev,
-        )
-        b0 = b0_fut.result()
-        ev_res = gs_fut.result()
+    def _run_seed_pair(seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        with ThreadPoolExecutor(max_workers=2) as pair_pool:
+            f_b0 = pair_pool.submit(
+                run_b0_baseline,
+                prof.ruleset,
+                workloads,
+                utility_name=prof.utility,
+                pdf_path=pdf_path,
+                seed=seed,
+            )
+            f_gs = pair_pool.submit(
+                evolve_controller,
+                prof.ruleset,
+                workloads,
+                population_size=population_size,
+                budget_s=budget_s,
+                max_generations=max_generations,
+                seed=seed,
+            )
+            b0_res = f_b0.result()
+            gs_res = f_gs.result()
 
-    failed_ids = sorted({f["constraint_id"] for f in noop.eval_result.failing_constraints})
-    _log(
-        f"{tag} DONE | Noop: {_fmt_ev(noop.eval_result.to_dict())} failed={failed_ids}\n"
-        f"{tag}      | B1  : {_fmt_ev(b1.eval_result.to_dict())}\n"
-        f"{tag}      | B0  : {_fmt_ev(b0.eval_result.to_dict())} ({b0.elapsed_s:.1f}s)\n"
-        f"{tag}      | GS  : [{ev_res.outcome}] "
-        f"{_fmt_ev(ev_res.best_eval.to_dict() if ev_res.best_eval else None)} "
-        f"(gens={ev_res.generations_completed}, cands={ev_res.total_candidates_evaluated}, "
-        f"passed={ev_res.total_candidates_passed}, static_rej={ev_res.total_static_rejected}, {ev_res.elapsed_s:.1f}s)"
-    )
-
-    compact_history = [
-        {
-            "generation": h.generation,
-            "worker_id": h.worker_id,
-            "strategy": h.strategy,
-            "passed": h.eval_result.passed,
-            "workloads_passed": h.eval_result.workloads_passed,
-            "workloads_total": h.eval_result.workloads_total,
-            "composite_score": round(h.eval_result.composite_score, 4),
-            "mean_energy_overhead_pct": round(h.eval_result.mean_energy_overhead_pct, 3),
-            "mean_throughput_loss_pct": round(h.eval_result.mean_throughput_loss_pct, 3),
-            "mean_battery_wear": round(h.eval_result.mean_battery_wear, 6),
-            "worst_margin_pct": h.eval_result.worst_margin_pct,
-            "static_violations": h.eval_result.static_violations,
-            "error": h.eval_result.error,
-            "api_time_s": round(h.api_time_s, 2),
+        b0_entry = {
+            "seed": seed,
+            "passed": b0_res.eval_result.passed,
+            "elapsed_s": round(b0_res.elapsed_s, 2),
+            "model": b0_res.model,
+            "notes": b0_res.notes,
+            "code": b0_res.code,
+            "eval_result": b0_res.eval_result.to_dict(),
         }
-        for h in ev_res.history
-    ]
+        gs_entry = {
+            "seed": seed,
+            "outcome": gs_res.outcome,
+            "passed": gs_res.passed,
+            "elapsed_s": round(gs_res.elapsed_s, 2),
+            "model": gs_res.model,
+            "thinking_level": gs_res.thinking_level,
+            "generations_completed": gs_res.generations_completed,
+            "total_candidates_evaluated": gs_res.total_candidates_evaluated,
+            "total_candidates_passed": gs_res.total_candidates_passed,
+            "total_static_rejected": gs_res.total_static_rejected,
+            "refusal_reason": gs_res.refusal_reason,
+            "code": gs_res.best_code,
+            "eval_result": gs_res.best_eval.to_dict() if gs_res.best_eval else None,
+        }
+        return b0_entry, gs_entry
+
+    # Run the 3 seeds for this profile concurrently
+    with ThreadPoolExecutor(max_workers=len(seeds)) as seed_pool:
+        futs = {seed_pool.submit(_run_seed_pair, s): s for s in seeds}
+        seed_results: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
+        for fut in as_completed(futs):
+            s = futs[fut]
+            seed_results[s] = fut.result()
+
+    for s in seeds:
+        b0_e, gs_e = seed_results[s]
+        b0_runs.append(b0_e)
+        gs_runs.append(gs_e)
+
+        # Match B3 simulator evaluation budget to the exact number of candidates GridSafe evaluated!
+        n_evals = max(1, int(gs_e["total_candidates_evaluated"]))
+        b3_res = run_b3_baseline(
+            prof.ruleset,
+            workloads,
+            n_evals=n_evals,
+            seed=s,
+        )
+        b3_runs.append(
+            {
+                "seed": s,
+                "n_evals": n_evals,
+                "passed": b3_res.eval_result.passed,
+                "elapsed_s": round(b3_res.elapsed_s, 2),
+                "model": b3_res.model,
+                "notes": b3_res.notes,
+                "code": b3_res.code,
+                "eval_result": b3_res.eval_result.to_dict(),
+            }
+        )
+
+    b0_agg = _aggregate_seed_runs(b0_runs)
+    b3_agg = _aggregate_seed_runs(b3_runs)
+    gs_agg = _aggregate_seed_runs(gs_runs)
+
+    # Evaluate representative controllers on the unseen random suite (N=20)
+    random_evals: dict[str, Any] = {}
+    for label, code_str in [
+        ("uncontrolled", noop.code),
+        ("b1", b1.code),
+        ("b0", b0_agg.get("best_code")),
+        ("b3", b3_agg.get("best_code")),
+        ("gridsafe", gs_agg.get("best_code")),
+    ]:
+        if code_str:
+            rev = evaluate_controller_sandboxed(code_str, prof.ruleset, random_workloads, timeout_s=20.0)
+            random_evals[label] = {
+                "passed": rev.passed,
+                "workloads_passed": rev.workloads_passed,
+                "workloads_evaluable": rev.workloads_evaluable,
+                "workloads_total": rev.workloads_total,
+                "mean_energy_overhead_pct": round(rev.mean_energy_overhead_pct, 3),
+                "mean_throughput_loss_pct": round(rev.mean_throughput_loss_pct, 3),
+                "family_summary": rev.family_summary,
+                "worst_margin_pct": rev.worst_margin_pct,
+            }
+        else:
+            random_evals[label] = {"passed": False, "workloads_passed": 0, "workloads_total": len(random_workloads)}
+
+    _log(
+        f"{tag} DONE ({time.perf_counter()-t_prof0:.1f}s) | "
+        f"Noop={noop.eval_result.passed} | B1={b1.eval_result.passed} | "
+        f"B0={b0_agg['passed_runs']}/{b0_agg['runs']} | "
+        f"B3={b3_agg['passed_runs']}/{b3_agg['runs']} | "
+        f"GS={gs_agg['passed_runs']}/{gs_agg['runs']} "
+        f"(OH={gs_agg['mean_overhead_pct_pass']}%, TP={gs_agg['mean_throughput_loss_pct_pass']}%) | "
+        f"Rand20 GS={random_evals['gridsafe']['workloads_passed']}/{random_evals['gridsafe'].get('workloads_evaluable', 20)}"
+    )
 
     return {
         "profile": prof.to_dict(),
-        "workloads": {k: v.to_dict() for k, v in workloads.items()},
         "uncontrolled": noop.to_dict(),
         "b1": b1.to_dict(),
-        "b0": b0.to_dict(),
-        "gridsafe": {
-            "outcome": ev_res.outcome,
-            "passed": ev_res.passed,
-            "model": ev_res.model,
-            "thinking_level": ev_res.thinking_level,
-            "best_code": ev_res.best_code,
-            "best_eval": ev_res.best_eval.to_dict() if ev_res.best_eval else None,
-            "seed_eval": ev_res.seed_eval.to_dict(),
-            "fallback_eval": ev_res.fallback_eval.to_dict() if ev_res.fallback_eval else None,
-            "generations_completed": ev_res.generations_completed,
-            "total_candidates_evaluated": ev_res.total_candidates_evaluated,
-            "total_candidates_passed": ev_res.total_candidates_passed,
-            "total_static_rejected": ev_res.total_static_rejected,
-            "elapsed_s": round(ev_res.elapsed_s, 2),
-            "refusal_reason": ev_res.refusal_reason,
-            "history_summary": compact_history,
-        },
+        "b0": {"summary": b0_agg, "runs": b0_runs},
+        "b3": {"summary": b3_agg, "runs": b3_runs},
+        "gridsafe": {"summary": gs_agg, "runs": gs_runs},
+        "random_suite_eval": random_evals,
     }
+
+
+def print_summary_table(payload: dict[str, Any]) -> None:
+    print(
+        "\n=== Phase 3b Comparison Table (Idle Start Prepended | Fast 20s + Slow 30m | 3 Seeds per Profile) ==="
+    )
+    hdr = (
+        f"{'Profile':17s} | {'Split':8s} | {'Noop (F/S)':14s} | {'B1 90% (F/S)':14s} | "
+        f"{'B0 PDF-in':16s} | {'B3 RandSrch':18s} | {'GridSafe (3 seeds)':30s} | {'Rand20 GS':10s}"
+    )
+    print(hdr)
+    print("-" * len(hdr))
+
+    def _fs_short(ev: dict[str, Any] | None) -> str:
+        if not ev:
+            return "REF"
+        fs = ev.get("family_summary") or {}
+        f_s = fs.get("fast", {}).get("status", "-")
+        s_s = fs.get("slow", {}).get("status", "-")
+        m = {"pass": "P", "fail": "F", "not_evaluable": "N/E", "refused": "R"}
+        return f"{'PASS' if ev['passed'] else 'FAIL'} ({m.get(f_s,'-')}/{m.get(s_s,'-')})"
+
+    def _agg_short(agg: dict[str, Any], include_metrics: bool = False) -> str:
+        pr = f"{agg['passed_runs']}/{agg['runs']}"
+        fr = agg["fast_reliability"]
+        sr = agg["slow_reliability"]
+        f_ch = "N/E" if fr["status"] == "not_evaluable" else f"{fr['passed']}/{fr['total']}"
+        s_ch = "N/E" if sr["status"] == "not_evaluable" else f"{sr['passed']}/{sr['total']}"
+        if not include_metrics:
+            return f"{pr} ({f_ch}|{s_ch})"
+        oh = agg["mean_overhead_pct_pass"]
+        tp = agg["mean_throughput_loss_pct_pass"]
+        if oh is not None and tp is not None:
+            return f"{pr} ({f_ch}|{s_ch}) OH={oh:4.1f}% TP={tp:4.1f}%"
+        return f"{pr} ({f_ch}|{s_ch}) OH=n/a"
+
+    for rec in payload["profiles"]:
+        p = rec["profile"]
+        u_s = _fs_short(rec["uncontrolled"]["eval_result"])
+        b1_s = _fs_short(rec["b1"]["eval_result"])
+        b0_s = _agg_short(rec["b0"]["summary"])
+        b3_s = _agg_short(rec["b3"]["summary"])
+        gs_s = _agg_short(rec["gridsafe"]["summary"], include_metrics=True)
+        rs = rec.get("random_suite_eval", {}).get("gridsafe", {})
+        r_s = (
+            f"{'PASS' if rs.get('passed') else 'FAIL'} {rs.get('workloads_passed',0)}/{rs.get('workloads_evaluable',0)}"
+        )
+        print(
+            f"{p['profile_id']:17s} | {p['split']:8s} | {u_s:14s} | {b1_s:14s} | "
+            f"{b0_s:16s} | {b3_s:18s} | {gs_s:30s} | {r_s:10s}"
+        )
 
 
 def run_benchmark(
     *,
+    seeds: tuple[int, ...] = DEFAULT_SEEDS,
     population_size: int = 6,
     budget_s: float = 75.0,
     max_generations: int = 3,
-    max_parallel_profiles: int = 4,
+    max_parallel_profiles: int = 3,
+    random_seed: int = 20261121,
+    random_n: int = 20,
     profiles_filter: set[str] | None = None,
     new_only: bool = False,
 ) -> dict[str, Any]:
@@ -166,7 +344,8 @@ def run_benchmark(
         for rec in prev.get("profiles", []):
             existing_by_id[rec["profile"]["profile_id"]] = rec
 
-    workloads = preset_workloads(100.0)
+    workloads = all_preset_workloads(100.0)
+    random_workloads = sample_random_suite(n=random_n, seed=random_seed, cluster_mw=100.0)
     by_id: dict[str, dict[str, Any]] = dict(existing_by_id)
 
     to_run = [p for p in profiles if p.profile_id not in by_id]
@@ -177,6 +356,8 @@ def run_benchmark(
                     _run_one_profile,
                     prof,
                     workloads,
+                    random_workloads,
+                    seeds=seeds,
                     population_size=population_size,
                     budget_s=budget_s,
                     max_generations=max_generations,
@@ -187,67 +368,41 @@ def run_benchmark(
                 pid = futs[fut]
                 by_id[pid] = fut.result()
 
-    # Preserve deterministic profile order
     records = [by_id[p.profile_id] for p in profiles if p.profile_id in by_id]
 
     payload = {
+        "schema_version": "phase3b",
         "run_at_utc": datetime.now(timezone.utc).isoformat(),
         "rated_mw": 100.0,
-        "workloads": list(workloads.keys()),
+        "seeds": list(seeds),
+        "random_suite_seed": random_seed,
+        "random_suite_n": random_n,
+        "workloads": {k: v.to_dict() for k, v in workloads.items()},
         "population_size": population_size,
         "budget_s": budget_s,
         "profiles": records,
     }
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    print(f"\nSaved Phase 3 results -> {OUT_PATH.relative_to(REPO_ROOT)}", flush=True)
+    print(f"\nSaved Phase 3b results -> {OUT_PATH.relative_to(REPO_ROOT)}", flush=True)
     print_summary_table(payload)
     return payload
 
 
-def print_summary_table(payload: dict[str, Any]) -> None:
-    print("\n=== Phase 3 Comparison Table (Same Deterministic Checker, 4 Workloads per Profile) ===")
-    hdr = (
-        f"{'Profile':18s} | {'Split':8s} | {'Noop':9s} | {'B1 (90%)':19s} | "
-        f"{'B0 (Neon 1x)':25s} | {'GridSafe (Hydrogen)':33s}"
-    )
-    print(hdr)
-    print("-" * len(hdr))
-    for rec in payload["profiles"]:
-        p = rec["profile"]
-        u_ev = rec["uncontrolled"]["eval_result"]
-        b1_ev = rec["b1"]["eval_result"]
-        b0_ev = rec["b0"]["eval_result"]
-        gs = rec["gridsafe"]
-        gs_ev = gs["best_eval"]
-
-        u_s = f"{'PASS' if u_ev['passed'] else 'FAIL'} {u_ev['workloads_passed']}/{u_ev['workloads_total']}"
-        b1_s = (
-            f"{'PASS' if b1_ev['passed'] else 'FAIL'} {b1_ev['workloads_passed']}/{b1_ev['workloads_total']} "
-            f"OH={b1_ev['mean_energy_overhead_pct']:4.1f}%"
-        )
-        b0_s = (
-            f"{'PASS' if b0_ev['passed'] else 'FAIL'} {b0_ev['workloads_passed']}/{b0_ev['workloads_total']} "
-            f"OH={b0_ev['mean_energy_overhead_pct']:4.1f}% TP={b0_ev['mean_throughput_loss_pct']:4.1f}%"
-        )
-        if gs_ev:
-            gs_s = (
-                f"{'PASS' if gs['passed'] else 'FAIL'} {gs_ev['workloads_passed']}/{gs_ev['workloads_total']} "
-                f"OH={gs_ev['mean_energy_overhead_pct']:4.1f}% TP={gs_ev['mean_throughput_loss_pct']:4.1f}% [{gs['elapsed_s']:.0f}s]"
-            )
-        else:
-            gs_s = f"REFUSED [{gs['elapsed_s']:.0f}s]"
-        print(f"{p['profile_id']:18s} | {p['split']:8s} | {u_s:9s} | {b1_s:19s} | {b0_s:25s} | {gs_s:33s}")
-
-
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run Phase 3 baselines + GridSafe Designer benchmark.")
-    parser.add_argument(
-        "--new-only",
-        action="store_true",
-        help="Keep cached results for existing profiles and only run newly discovered profiles.",
-    )
+    parser = argparse.ArgumentParser(description="Run Phase 3b multi-seed dual-family benchmark.")
+    parser.add_argument("--new-only", action="store_true")
+    parser.add_argument("--seeds", type=int, nargs="+", default=list(DEFAULT_SEEDS))
+    parser.add_argument("--profiles", type=str, nargs="*", default=None)
+    parser.add_argument("--max-parallel-profiles", type=int, default=3)
+    parser.add_argument("--random-seed", type=int, default=20261121)
+    parser.add_argument("--random-n", type=int, default=20)
     args = parser.parse_args()
-    run_benchmark(new_only=args.new_only)
+    run_benchmark(
+        seeds=tuple(args.seeds),
+        max_parallel_profiles=args.max_parallel_profiles,
+        random_seed=args.random_seed,
+        random_n=args.random_n,
+        profiles_filter=set(args.profiles) if args.profiles else None,
+        new_only=args.new_only,
+    )

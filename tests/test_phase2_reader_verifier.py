@@ -69,17 +69,24 @@ def test_page_with_no_numeric_limits_yields_zero_constraints() -> None:
     assert out.unreadable is False
 
 
-def test_conflicting_limits_flagged_and_adjacent_bands_not_flagged() -> None:
-    """Conflicting limits of the same type/band are flagged; adjacent frequency bands are not."""
+def test_conflicting_limits_scoped_to_entity_and_cross_page_dedup() -> None:
+    """Conflicts are detected ONLY within one entity; cross-entity limits and adjacent bands do not conflict; duplicates across pages are deduped."""
+    from reader.extract import _deduplicate_constraints
+
     constraints = [
-        Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="ERCOT: 20 MW/min"),
-        Constraint("ramp_rate", 10.0, "MW/min", page=14, snippet="AESO: 10 MW/min"),
+        # Same entity (ERCOT) conflicting limits -> MUST flag conflict
+        Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="ERCOT: 20 MW/min", entity="ERCOT"),
+        Constraint("ramp_rate", 10.0, "MW/min", page=19, snippet="ERCOT: 10 MW/min", entity="ERCOT"),
+        # Different entity (AESO) -> MUST NOT conflict with ERCOT
+        Constraint("ramp_rate", 15.0, "MW/min", page=14, snippet="AESO: 15 MW/min", entity="AESO"),
+        # Adjacent LIPA bands -> MUST NOT conflict
         Constraint(
             "fluctuation_band",
             10.0,
             "MW",
             page=23,
             snippet="LIPA 0.1-5 Hz < 10 MW",
+            entity="LIPA",
             freq_min_hz=0.1,
             freq_max_hz=5.0,
         ),
@@ -89,20 +96,51 @@ def test_conflicting_limits_flagged_and_adjacent_bands_not_flagged() -> None:
             "MW",
             page=23,
             snippet="LIPA 5-55 Hz < 3.5 MW",
+            entity="LIPA",
             freq_min_hz=5.0,
             freq_max_hz=55.0,
         ),
+        # Duplicate LIPA limit restated on page 25 -> MUST be deduped into single entry
+        Constraint(
+            "fluctuation_band",
+            10.0,
+            "MW",
+            page=25,
+            snippet="LIPA 0.1-5 Hz < 10 MW restated",
+            entity="LIPA",
+            freq_min_hz=0.1,
+            freq_max_hz=5.0,
+        ),
     ]
-    for idx, c in enumerate(constraints):
-        c.id = f"{c.constraint_type}_{idx}"
+    deduped = _deduplicate_constraints(constraints, rated_mw=100.0)
+    assert len(deduped) == 5  # duplicate p.25 LIPA merged into p.23 LIPA
+    lipa_low = next(c for c in deduped if c.entity == "LIPA" and c.freq_max_hz == 5.0)
+    assert "p.25" in lipa_low.notes
 
-    detect_conflicts(constraints, rated_mw=100.0)
-    assert constraints[0].conflict_flag is True
-    assert constraints[1].conflict_flag is True
-    assert "CONFLICT" in constraints[0].notes
-    # Adjacent LIPA bands [0.1, 5.0] and [5.0, 55.0] do NOT overlap and must NOT be flagged
-    assert constraints[2].conflict_flag is False
-    assert constraints[3].conflict_flag is False
+    detect_conflicts(deduped, rated_mw=100.0)
+    ercot_items = [c for c in deduped if c.entity == "ERCOT"]
+    aeso_item = next(c for c in deduped if c.entity == "AESO")
+    lipa_items = [c for c in deduped if c.entity == "LIPA"]
+
+    assert all(c.conflict_flag is True for c in ercot_items)
+    assert all("CONFLICT" in c.notes for c in ercot_items)
+    assert aeso_item.conflict_flag is False
+    assert all(c.conflict_flag is False for c in lipa_items)
+
+
+def test_label_cli_checkable_filter_and_conflict_stripping() -> None:
+    """Step 1: scripts/label.py filters checkable types and never saves [CONFLICT] notes into gold."""
+    from scripts.label import filter_candidates, strip_conflict_notes
+
+    assert strip_conflict_notes("Normal note [CONFLICT: Conflicts with ramp_rate_1 (p.14: 20 MW/min)]") == "Normal note"
+    assert strip_conflict_notes("[CONFLICT: a] [CONFLICT: b]") == ""
+    cands = [
+        {"constraint_type": "ramp_rate"},
+        {"constraint_type": "other"},
+        {"constraint_type": "fluctuation_band"},
+    ]
+    assert len(filter_candidates(cands, checkable_only=True)) == 2
+    assert len(filter_candidates(cands, checkable_only=False)) == 3
 
 
 def test_verifier_batches_one_call_per_page_and_abstains_below_threshold() -> None:

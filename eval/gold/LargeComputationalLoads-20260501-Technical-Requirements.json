@@ -1,0 +1,59 @@
+{
+  "doc_id": "LargeComputationalLoads-20260501-Technical-Requirements",
+  "source_file": "specs/LargeComputationalLoads-20260501-Technical-Requirements.pdf",
+  "split": "held_out",
+  "rated_mw": 100.0,
+  "labeled_by": "human",
+  "labeled_at_utc": "2026-11-21T17:31:40.868970+00:00",
+  "notes": "Labeled manually via scripts/label.py",
+  "constraints": [
+    {
+      "id": "fluctuation_band_0",
+      "constraint_type": "fluctuation_band",
+      "value": 2.5,
+      "unit": "MW",
+      "page": 8,
+      "snippet": "The connection applicant shall ensure the power consumption at the Point of Interconnection (POI) of the project has no periodic power oscillation within the sub-synchronous frequency band exceeding the lesser of +/-2.5 MW or +/-0.25 % of the nominal power of the project unless the connection applicant provides the specific load profile which will be assessed by the IESO.",
+      "checkable": true,
+      "entity": "",
+      "window_s": null,
+      "freq_min_hz": null,
+      "freq_max_hz": null,
+      "source_section": "6.4 Periodic Oscillation",
+      "notes": "Absolute (+/-2.5 MW) half of the lesser-of periodic power oscillation limit at the POI within the sub-synchronous frequency band to avoid SSTI/SSCI.",
+      "assumptions": []
+    },
+    {
+      "id": "fluctuation_band_1",
+      "constraint_type": "fluctuation_band",
+      "value": 0.25,
+      "unit": "% of rated load",
+      "page": 8,
+      "snippet": "The connection applicant shall ensure the power consumption at the Point of Interconnection (POI) of the project has no periodic power oscillation within the sub-synchronous frequency band exceeding the lesser of +/-2.5 MW or +/-0.25 % of the nominal power of the project unless the connection applicant provides the specific load profile which will be assessed by the IESO.",
+      "checkable": true,
+      "entity": "",
+      "window_s": null,
+      "freq_min_hz": null,
+      "freq_max_hz": null,
+      "source_section": "6.4 Periodic Oscillation",
+      "notes": "Percentage (+/-0.25% of nominal power) half of the lesser-of periodic power oscillation limit at the POI within the sub-synchronous frequency band to avoid SSTI/SSCI.",
+      "assumptions": []
+    },
+    {
+      "id": "ramp_rate_2",
+      "constraint_type": "ramp_rate",
+      "value": 20.0,
+      "unit": "MW/min",
+      "page": 8,
+      "snippet": "The connection applicant shall ensure that the project has the capability to operate with linear ramp rates not exceeding 20 MW per minute during normal operation. This maximum rate applies when reducing active power consumption and when restoring active power consumption, unless a different ramp rate has been specified by the IESO.",
+      "checkable": true,
+      "entity": "",
+      "window_s": null,
+      "freq_min_hz": null,
+      "freq_max_hz": null,
+      "source_section": "6.6 Load Ramping",
+      "notes": "Applies to normal operation when reducing or restoring active power; does not restrict response during system events such as RAS runbacks or frequency/voltage excursions.",
+      "assumptions": []
+    }
+  ]
+}

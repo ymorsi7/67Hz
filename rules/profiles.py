@@ -2,9 +2,10 @@
 
 Pure Python + numpy only (sandbox-safe). Reads cached Reader + Verifier outputs
 in eval/cache/extractions/*.json and constructs one RuleSet profile per utility
-without ever mixing dev and held_out documents. New PDFs added to specs/ and
-processed into eval/cache/extractions/ with split="held_out" are picked up
-automatically without tuning.
+without ever mixing dev and held_out documents. Backfills explicit `entity`
+attribution, deduplicates limits stated across multiple pages, and preserves
+all documented checker assumptions (60 s per-minute ramp window, window ranges,
+sub-synchronous Hz band).
 """
 
 from __future__ import annotations
@@ -15,33 +16,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rules.schema import Constraint, RuleSet
+from rules.schema import Constraint, RuleSet, canonicalize_entity
+from rules.units import UnitConversionError, normalize_constraint_limit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EXTRACTIONS_DIR = REPO_ROOT / "eval" / "cache" / "extractions"
 
-# Ordered utility name patterns (matched against source_section then snippet)
-_UTILITY_PATTERNS: list[tuple[str, str]] = [
-    ("ERCOT", r"\bercot\b"),
-    ("LIPA", r"\blipa\b|long island power|pseg\s+long\s+island|lipasystem"),
-    ("AESO", r"\baeso\b|alberta electric"),
-    ("ATC", r"\batc\b|american transmission"),
-    ("Southern", r"\bsouthern\s+company\b|\bsouthern\b|\bsct\b|\bsoco\b"),
-    ("CAISO", r"\bcaiso\b|california iso"),
-    ("IESO", r"\bieso\b|independent electricity system operator|largecomputationalloads"),
-    ("MISO", r"\bmiso\b|ameren|\bllwg\b"),
-    ("PJM", r"\bpjm\b"),
-    ("NYISO", r"\bnyiso\b"),
-    ("ISO-NE", r"\biso-ne\b|iso new england"),
-    ("SPP", r"\bspp\b|southwest power pool"),
-    ("AEP", r"\baep\b|american electric power"),
-    ("Dominion", r"\bdominion\b"),
-    ("PG&E", r"\bpg&e\b|pacific gas"),
-    ("Oncor", r"\boncor\b"),
-    ("Duke", r"\bduke\s+energy\b"),
-    ("BPA", r"\bbpa\b|bonneville power"),
-    ("NERC", r"\bnerc\b"),
-]
+_CONFLICT_NOTE_RE = re.compile(r"\s*\[CONFLICT[^\]]*\]", flags=re.IGNORECASE)
 
 
 @dataclass
@@ -64,6 +45,7 @@ class UtilityProfile:
             "source_doc": self.source_doc,
             "source_file": self.source_file,
             "pages": list(self.pages),
+            "assumptions": self.ruleset.collect_assumptions(),
             "ruleset": self.ruleset.to_dict(),
         }
 
@@ -73,38 +55,28 @@ def _slug(text: str) -> str:
 
 
 def _infer_utility(constraint: Constraint, source_name: str, doc_id: str) -> str:
-    """Assign a constraint to its originating utility from section/snippet/doc metadata."""
-    sec = (constraint.source_section or "").strip()
-    snip = (constraint.snippet or "").strip()
-
-    # 1. Explicit utility match in source_section (most reliable for comparative docs)
-    for utility, pat in _UTILITY_PATTERNS:
-        if re.search(pat, sec, flags=re.IGNORECASE):
-            return utility
-
-    # 2. Explicit utility match at the start of snippet (e.g. "ERCOT: ...")
-    head = snip[:60]
-    for utility, pat in _UTILITY_PATTERNS:
-        if re.search(pat, head, flags=re.IGNORECASE):
-            return utility
-
-    # 3. Document-level default utility (e.g. CAISO Straw Proposal main sections like "2.4. Ramp Rate Limit")
-    doc_ctx = f"{source_name} {doc_id}"
-    for utility, pat in _UTILITY_PATTERNS:
-        if re.search(pat, doc_ctx, flags=re.IGNORECASE):
-            return utility
-    if "large-load-technical-requirements-straw-proposal" in doc_ctx.lower():
-        return "CAISO"
-
-    # 4. Fallback to cleaned doc_id for newly added utility-specific PDFs
-    return doc_id
+    """Assign a constraint to its originating utility entity."""
+    ent = canonicalize_entity(
+        entity=constraint.entity,
+        source_section=constraint.source_section,
+        snippet=constraint.snippet,
+        doc_context=f"{source_name} {doc_id}",
+    )
+    return ent if ent else doc_id
 
 
-def _dedup_key(c: Constraint) -> tuple[Any, ...]:
+def _dedup_key(c: Constraint, rated_mw: float) -> tuple[Any, ...]:
+    try:
+        norm_val, canon_unit = normalize_constraint_limit(c, rated_mw=rated_mw)
+        val_key = round(float(norm_val), 4)
+    except UnitConversionError:
+        canon_unit = c.unit.strip().lower()
+        val_key = round(float(c.value), 4) if c.value is not None else None
     return (
+        c.entity.strip().lower(),
         c.constraint_type,
-        round(float(c.value), 6) if c.value is not None else None,
-        c.unit.strip().lower(),
+        val_key,
+        canon_unit,
         round(float(c.window_s), 6) if c.window_s is not None else None,
         round(float(c.freq_min_hz), 6) if c.freq_min_hz is not None else None,
         round(float(c.freq_max_hz), 6) if c.freq_max_hz is not None else None,
@@ -120,9 +92,10 @@ def load_utility_profiles(
     """Build one UtilityProfile per (utility, source_doc) from verified checkable constraints.
 
     Only constraints with checkable=True, verified=True, and needs_human_review=False
-    are included. Exact duplicate constraints within the same utility and document
-    (e.g., LIPA limits repeated verbatim on pp. 23 & 25 of CAISO) are deduplicated
-    while preserving the highest-confidence instance.
+    are included. Exact/equivalent numeric constraints repeated across multiple pages
+    for the same entity (e.g., LIPA limits repeated on pp. 23 & 25 of CAISO, or MISO
+    30 MW/min on pp. 2 & 8) are deduplicated into one constraint while preserving
+    additional page citations.
     """
     edir = Path(extractions_dir)
     if not edir.exists():
@@ -163,18 +136,16 @@ def load_utility_profiles(
                 continue
             if c.verified is not True or c.needs_human_review:
                 continue
-            # Clear cross-utility conflict flags that came from comparing utilities inside one doc
             clean_c = Constraint.from_dict(c.to_dict())
             clean_c.conflict_flag = False
-            if "[CONFLICT:" in clean_c.notes:
-                clean_c.notes = clean_c.notes.split("[CONFLICT:")[0].strip()
+            clean_c.notes = _CONFLICT_NOTE_RE.sub("", clean_c.notes).strip()
 
             util = _infer_utility(clean_c, source_name, doc_id)
+            clean_c.entity = util
             if doc_split == "held_out" and util in dev_utilities and "2601.12686" not in source_name:
                 continue
             grouped.setdefault(util, []).append(clean_c)
 
-        # Deterministic ordering: CAISO first, then ERCOT, ATC, AESO, Southern, LIPA, then alphabetical
         preferred_order = ["CAISO", "ERCOT", "ATC", "AESO", "Southern", "LIPA"]
         ordered_utils = sorted(
             grouped.keys(),
@@ -183,16 +154,26 @@ def load_utility_profiles(
 
         for util in ordered_utils:
             raw_list = grouped[util]
-            # Deduplicate identical numeric rules within this utility profile (keep earliest page, max confidence)
             deduped: dict[tuple[Any, ...], Constraint] = {}
             for c in raw_list:
-                key = _dedup_key(c)
+                key = _dedup_key(c, rated_mw=rated_mw)
                 prev = deduped.get(key)
                 if prev is None:
                     deduped[key] = c
                 else:
+                    if c.page != prev.page:
+                        also = f"Also stated on p.{c.page}."
+                        if also not in prev.notes:
+                            prev.notes = f"{prev.notes} {also}".strip()
                     if (c.confidence or 0.0) > (prev.confidence or 0.0):
-                        # Keep higher confidence while noting earlier page if needed
+                        # Keep higher confidence while retaining earliest page citation
+                        merged_notes = prev.notes
+                        if prev.page != c.page:
+                            also_prev = f"Also stated on p.{prev.page}."
+                            if also_prev not in c.notes:
+                                c.notes = f"{c.notes} {also_prev}".strip()
+                        elif merged_notes and not c.notes:
+                            c.notes = merged_notes
                         deduped[key] = c
 
             constraints = list(deduped.values())
@@ -204,7 +185,7 @@ def load_utility_profiles(
                 pid = f"{base_slug}_held_out"
             elif base_slug == "southern":
                 pid = "southern_dev"
-            elif base_slug == "lipa" and "pseg" in source_name.lower() or "connectedlipasystem" in source_name.lower():
+            elif (base_slug == "lipa" and "pseg" in source_name.lower()) or "connectedlipasystem" in source_name.lower():
                 pid = "lipa_pseg"
             else:
                 pid = base_slug
@@ -230,6 +211,5 @@ def load_utility_profiles(
                 )
             )
 
-    # Sort dev profiles before held_out profiles
     profiles.sort(key=lambda p: (0 if p.split == "dev" else 1, p.profile_id))
     return profiles

@@ -1,14 +1,18 @@
-"""Phase 3 tests: seed controller, static safety bans, subprocess sandbox, evolve loop, profiles, baselines."""
+"""Phase 3 & 3b tests: seed controller, static safety bans, subprocess sandbox, evolve loop, B3, random suite, profiles."""
 
 from __future__ import annotations
 
 import ast
-import os
 from pathlib import Path
 
 import pytest
 
-from evolve.baselines import run_b1_baseline, run_uncontrolled_baseline
+from eval.random_suite import sample_random_suite
+from evolve.baselines import (
+    run_b1_baseline,
+    run_b3_baseline,
+    run_uncontrolled_baseline,
+)
 from evolve.loop import evolve_controller
 from evolve.sandbox import (
     _sanitized_env,
@@ -17,7 +21,12 @@ from evolve.sandbox import (
 )
 from rules.profiles import load_utility_profiles
 from rules.schema import Constraint, RuleSet
-from workload.synth import WorkloadParams, preset_workloads
+from workload.synth import (
+    WorkloadParams,
+    all_preset_workloads,
+    preset_workloads,
+    slow_preset_workloads,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,12 +57,13 @@ def test_seed_controller_under_60_lines_and_valid() -> None:
     ruleset = RuleSet(
         source_name="test_seed",
         rated_mw=100.0,
-        constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=1, snippet="20 MW/min")],
+        constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=1, snippet="20 MW/min", window_s=60.0)],
     )
-    wl = {"short": WorkloadParams(cluster_mw=100.0, duration_s=1.0, dt_s=0.002, seed=42)}
+    wl = {"slow_one": slow_preset_workloads(100.0)["slow_training_run"]}
     ev = evaluate_controller_sandboxed(code, ruleset, wl)
     assert ev.error is None
     assert ev.workloads_total == 1
+    assert ev.workloads_evaluable == 1
 
 
 def test_known_bad_controller_fails_gate() -> None:
@@ -77,11 +87,14 @@ def control(obs: dict) -> dict[str, float]:
             Constraint("max_step", 10.0, "MW", page=23, snippet="10 MW over 5s", window_s=5.0),
         ],
     )
-    wl = {"standard_training": preset_workloads(100.0)["standard_training"]}
+    wl = {
+        "standard_training": preset_workloads(100.0)["standard_training"],
+        "slow_training_run": slow_preset_workloads(100.0)["slow_training_run"],
+    }
     ev = evaluate_controller_sandboxed(bad_code, ruleset, wl)
     assert ev.passed is False
     assert ev.workloads_passed == 0
-    assert len(ev.failing_constraints) == 2
+    assert len(ev.failing_constraints) >= 2
     assert ev.worst_margin_pct is not None and ev.worst_margin_pct < 0.0
 
 
@@ -141,8 +154,8 @@ def test_sandbox_strips_api_key_from_child_env(monkeypatch: pytest.MonkeyPatch) 
     assert "GEMINI_API_KEY" not in env
 
 
-def test_evolve_loop_mocked_converges_streams_and_beats_b1() -> None:
-    """Verify evolution loop rejects banned candidates, accepts compliant ones, streams events, beats B1."""
+def test_t0_jump_controller_rejected_while_idle_start_controller_passes() -> None:
+    """Step 3: controller jumping to mean power at t=0 MUST fail; idle-start slew controller passes."""
     ruleset = RuleSet(
         source_name="mock_ercot",
         rated_mw=100.0,
@@ -151,7 +164,82 @@ def test_evolve_loop_mocked_converges_streams_and_beats_b1() -> None:
             Constraint("max_step", 10.0, "MW", page=23, snippet="10 MW over 5s", window_s=5.0),
         ],
     )
-    wl = {"standard_training": preset_workloads(100.0)["standard_training"]}
+    wl = {
+        "standard_training": preset_workloads(100.0)["standard_training"],
+        "slow_training_run": slow_preset_workloads(100.0)["slow_training_run"],
+    }
+
+    cheat_jump_code = """
+import math
+def control(obs: dict) -> dict[str, float]:
+    p_raw = float(obs["p_raw_mw"])
+    rated = float(obs["rated_mw"])
+    dt = float(obs["dt"])
+    b_max = float(obs["battery_max_power_mw"])
+    cap = float(obs["battery_capacity_mwh"])
+    e = float(obs["battery_energy_mwh"])
+    # Cheats by jumping immediately to 72 MW at t=0
+    p_target = 0.72 * rated
+    dt_h = dt / 3600.0
+    eta = math.sqrt(0.90)
+    b_dis_max = min(b_max, max(0.0, (e - 0.1 * cap) * eta / dt_h))
+    b_chg_max = min(b_max, max(0.0, (0.9 * cap - e) / (eta * dt_h)))
+    if p_target < p_raw - b_dis_max:
+        return {"gpu_floor_mw": 0.0, "gpu_cap_mw": p_target + b_dis_max, "battery_setpoint_mw": b_dis_max}
+    if p_target > p_raw + b_chg_max:
+        return {"gpu_floor_mw": p_target - b_chg_max, "gpu_cap_mw": rated, "battery_setpoint_mw": -b_chg_max}
+    return {"gpu_floor_mw": 0.0, "gpu_cap_mw": rated, "battery_setpoint_mw": p_raw - p_target}
+"""
+    ev_cheat = evaluate_controller_sandboxed(cheat_jump_code, ruleset, wl)
+    assert ev_cheat.passed is False, "t=0 jump to 72 MW must fail when idle is prepended!"
+
+    honest_idle_code = """
+import math
+def control(obs: dict) -> dict[str, float]:
+    p_raw = float(obs["p_raw_mw"])
+    rated = float(obs["rated_mw"])
+    dt = float(obs["dt"])
+    b_max = float(obs["battery_max_power_mw"])
+    cap = float(obs["battery_capacity_mwh"])
+    e = float(obs["battery_energy_mwh"])
+    idle = float(obs["idle_mw"])
+    st = obs["state"]
+    if "target" not in st:
+        st["target"] = idle
+    max_delta = 0.30 * dt  # 18 MW/min <= 20 MW/min AND <= 1.5 MW per 5s <= 10 MW
+    delta = max(-max_delta, min(max_delta, p_raw - st["target"]))
+    p_target = st["target"] + delta
+    st["target"] = p_target
+    dt_h = dt / 3600.0
+    eta = math.sqrt(0.90)
+    b_dis_max = min(b_max, max(0.0, (e - 0.1 * cap) * eta / dt_h))
+    b_chg_max = min(b_max, max(0.0, (0.9 * cap - e) / (eta * dt_h)))
+    if p_target < p_raw - b_dis_max:
+        return {"gpu_floor_mw": 0.0, "gpu_cap_mw": p_target + b_dis_max, "battery_setpoint_mw": b_dis_max}
+    if p_target > p_raw + b_chg_max:
+        return {"gpu_floor_mw": p_target - b_chg_max, "gpu_cap_mw": rated, "battery_setpoint_mw": -b_chg_max}
+    return {"gpu_floor_mw": 0.0, "gpu_cap_mw": rated, "battery_setpoint_mw": p_raw - p_target}
+"""
+    ev_honest = evaluate_controller_sandboxed(honest_idle_code, ruleset, wl)
+    assert ev_honest.passed is True
+    assert ev_honest.family_summary["fast"]["status"] == "pass"
+    assert ev_honest.family_summary["slow"]["status"] == "pass"
+
+
+def test_evolve_loop_mocked_converges_streams_and_beats_b1() -> None:
+    """Verify evolution loop rejects banned candidates, accepts compliant idle-start ones, and streams events."""
+    ruleset = RuleSet(
+        source_name="mock_ercot",
+        rated_mw=100.0,
+        constraints=[
+            Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="ERCOT: 20 MW/min"),
+            Constraint("max_step", 10.0, "MW", page=23, snippet="10 MW over 5s", window_s=5.0),
+        ],
+    )
+    wl = {
+        "standard_training": preset_workloads(100.0)["standard_training"],
+        "slow_training_run": slow_preset_workloads(100.0)["slow_training_run"],
+    }
 
     good_battery_code = """
 import math
@@ -163,14 +251,13 @@ def control(obs: dict) -> dict[str, float]:
     b_max = float(obs["battery_max_power_mw"])
     cap = float(obs["battery_capacity_mwh"])
     e = float(obs["battery_energy_mwh"])
+    idle = float(obs["idle_mw"])
     state = obs["state"]
 
-    # Hold target steady near mean load (72 MW) with strict slew rate <= 0.25 MW/s
     if "target" not in state:
-        state["target"] = 0.72 * rated
-    max_delta = 0.25 * dt
-    desired = 0.72 * rated
-    delta = max(-max_delta, min(max_delta, desired - state["target"]))
+        state["target"] = idle
+    max_delta = 0.30 * dt
+    delta = max(-max_delta, min(max_delta, p_raw - state["target"]))
     p_target = state["target"] + delta
     state["target"] = p_target
 
@@ -204,11 +291,12 @@ def control(obs: dict) -> dict[str, float]:
         budget_s=30.0,
         mutator_fn=mock_mutator,
         on_event=events.append,
+        seed=101,
     )
     assert res.outcome == "evolved_compliant"
     assert res.passed is True
     assert res.total_static_rejected >= 1
-    assert res.best_eval is not None and res.best_eval.mean_energy_overhead_pct < 15.0
+    assert res.best_eval is not None and res.best_eval.mean_energy_overhead_pct < 10.0
 
     event_types = [e["event"] for e in events]
     assert "evolve_start" in event_types
@@ -220,20 +308,24 @@ def control(obs: dict) -> dict[str, float]:
 
 
 def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
-    """Guaranteed outcome: conservative floor fallback if evolution fails; explicit refusal if uncertifiable."""
-    ruleset = RuleSet(
-        source_name="test_fallback",
+    """Guaranteed outcome: conservative floor fallback passes frequency-only rules; refuses when fallback fails or needs review."""
+    # Frequency-only rule (like LIPA): 100% constant floor genuinely passes with 0 AC ripple!
+    freq_ruleset = RuleSet(
+        source_name="test_fallback_freq",
         rated_mw=100.0,
-        constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min")],
+        constraints=[
+            Constraint("fluctuation_band", 3.5, "MW", page=25, snippet="5-55 Hz < 3.5 MW", freq_min_hz=5.0, freq_max_hz=55.0)
+        ],
     )
-    wl = {"short": WorkloadParams(cluster_mw=100.0, duration_s=1.0, dt_s=0.002)}
+    wl_fast = {"ssr1": preset_workloads(100.0)["ssr_mode1_attack"]}
 
     def always_bad(sys_inst: str, prompt: str, gen: int, worker_id: int) -> str:
         return "def control(obs):\n    return {'gpu_floor_mw': 0.0, 'gpu_cap_mw': float(obs['rated_mw']), 'battery_setpoint_mw': 0.0}\n"
 
     res_fb = evolve_controller(
-        ruleset,
-        wl,
+        freq_ruleset,
+        wl_fast,
+        seed_code=always_bad("", "", 0, 0),
         population_size=2,
         max_generations=1,
         budget_s=20.0,
@@ -242,6 +334,24 @@ def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
     assert res_fb.outcome == "fallback_conservative_floor"
     assert res_fb.passed is True
     assert res_fb.fallback_eval is not None and res_fb.fallback_eval.passed is True
+
+    # Strict idle-start ramp rule where static 100% floor jumps 15->100 MW at t=0 -> MUST refuse!
+    ramp_ruleset = RuleSet(
+        source_name="test_refusal_ramp",
+        rated_mw=100.0,
+        constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min")],
+    )
+    wl_slow = {"slow": slow_preset_workloads(100.0)["slow_training_run"]}
+    res_ref_ramp = evolve_controller(
+        ramp_ruleset,
+        wl_slow,
+        population_size=2,
+        max_generations=1,
+        budget_s=20.0,
+        mutator_fn=always_bad,
+    )
+    assert res_ref_ramp.outcome == "refused"
+    assert res_ref_ramp.passed is False
 
     # Unverified constraint needing human review -> explicit refusal
     review_ruleset = RuleSet(
@@ -261,7 +371,7 @@ def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
     )
     res_ref = evolve_controller(
         review_ruleset,
-        wl,
+        wl_slow,
         population_size=2,
         max_generations=1,
         budget_s=20.0,
@@ -272,20 +382,54 @@ def test_evolve_loop_guaranteed_fallback_and_explicit_refusal() -> None:
     assert res_ref.refusal_reason and "human review" in res_ref.refusal_reason.lower()
 
 
-def test_utility_profiles_and_uncontrolled_binding() -> None:
-    """Verify all 6 dev + held_out utility profiles load and fail uncontrolled on default workloads."""
+def test_b3_random_search_and_random_suite_determinism() -> None:
+    """Steps 4 & 6: B3 random search works without LLM; eval/random_suite samples N=20 deterministically."""
+    suite_a = sample_random_suite(n=20, seed=777)
+    suite_b = sample_random_suite(n=20, seed=777)
+    assert len(suite_a) == 20
+    assert {k: v.to_dict() for k, v in suite_a.items()} == {k: v.to_dict() for k, v in suite_b.items()}
+    assert sum(1 for v in suite_a.values() if v.family == "fast") == 10
+    assert sum(1 for v in suite_a.values() if v.family == "slow") == 10
+    assert all(v.job_start_s > 0.0 for v in suite_a.values())
+
+    ruleset = RuleSet(
+        source_name="b3_test",
+        rated_mw=100.0,
+        constraints=[Constraint("ramp_rate", 20.0, "MW/min", page=14, snippet="20 MW/min")],
+    )
+    wl = {"slow": slow_preset_workloads(100.0)["slow_training_run"]}
+    b3 = run_b3_baseline(ruleset, wl, n_evals=8, seed=101)
+    assert b3.baseline == "B3"
+    assert b3.n_evals == 8
+    assert validate_controller_code(b3.code).ok
+    assert b3.eval_result.error is None
+
+
+def test_utility_profiles_dual_family_and_entity_coverage() -> None:
+    """Verify all 11 utility profiles load with entity attribution and evaluate cleanly on both families."""
     profiles = load_utility_profiles(rated_mw=100.0)
     dev_utils = {p.utility for p in profiles if p.split == "dev"}
     held_utils = {p.utility for p in profiles if p.split == "held_out"}
 
     assert {"CAISO", "ERCOT", "ATC", "AESO", "Southern", "LIPA"}.issubset(dev_utils)
-    assert "Southern" in held_utils
+    assert {"IESO", "MISO", "Southern", "SPP"}.issubset(held_utils)
+    for prof in profiles:
+        assert all(c.entity for c in prof.ruleset.constraints), f"Missing entity on {prof.profile_id}"
 
-    workloads = preset_workloads(100.0)
+    workloads = all_preset_workloads(100.0)
     for prof in profiles:
         noop_res = run_uncontrolled_baseline(prof.ruleset, workloads)
-        assert noop_res.eval_result.passed is False, f"Uncontrolled unexpectedly passed {prof.profile_id}"
-        assert len(noop_res.eval_result.failing_constraints) >= 1
+        assert len(noop_res.eval_result.unevaluated_constraints) == 0, (
+            f"{prof.profile_id} left unevaluated constraints: {noop_res.eval_result.unevaluated_constraints}"
+        )
+        # Note: CAISO 20 MW/min over 600 s = 200 MW/10 min, which is physically non-binding on a 100 MW cluster
+        # (binds on clusters > 235 MW). Every other profile MUST fail uncontrolled at 100 MW.
+        if prof.profile_id == "caiso":
+            assert noop_res.eval_result.family_summary["fast"]["status"] == "not_evaluable"
+            assert noop_res.eval_result.family_summary["slow"]["status"] == "pass"
+        else:
+            assert noop_res.eval_result.passed is False, f"Uncontrolled unexpectedly passed {prof.profile_id}"
+            assert len(noop_res.eval_result.failing_constraints) >= 1
 
         b1_res = run_b1_baseline(prof.ruleset, workloads)
         assert b1_res.eval_result.error is None

@@ -177,6 +177,53 @@ def normalize_ramp_rate_mw_per_s(value: float, unit: str, rated_mw: float | None
     return power_mw / time_s
 
 
+def is_per_minute_ramp_unit(unit: str) -> bool:
+    """Return True if unit is a ramp-rate unit expressed per minute (e.g., MW/min, %/min)."""
+    try:
+        cleaned = _clean_unit(unit)
+    except UnitConversionError:
+        return False
+
+    if "/" in cleaned:
+        parts = [p.strip() for p in cleaned.split("/", 1)]
+    else:
+        m = re.split(r"\s+per\s+", cleaned, maxsplit=1, flags=re.IGNORECASE)
+        if len(m) != 2:
+            return False
+        parts = [m[0].strip(), m[1].strip()]
+
+    try:
+        time_s = normalize_time_s(1.0, parts[1])
+    except UnitConversionError:
+        return False
+    return abs(time_s - 60.0) < 1e-9
+
+
+_WINDOW_RANGE_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:to|–|—|-)\s*(\d+(?:\.\d+)?)\s*"
+    r"(ms|msec|milliseconds?|s|sec|secs|seconds?|min|mins|minutes?)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def parse_window_range_s(text: str) -> tuple[float, float] | None:
+    """Parse an explicit time-window range (e.g. '4–6 second interval') into (lo_s, hi_s)."""
+    if not text:
+        return None
+    for m in _WINDOW_RANGE_RE.finditer(text):
+        lo_raw = float(m.group(1))
+        hi_raw = float(m.group(2))
+        unit = m.group(3)
+        try:
+            lo_s = normalize_time_s(lo_raw, unit)
+            hi_s = normalize_time_s(hi_raw, unit)
+        except UnitConversionError:
+            continue
+        if hi_s > lo_s > 0.0:
+            return (lo_s, hi_s)
+    return None
+
+
 def normalize_constraint_limit(
     constraint: Constraint,
     rated_mw: float | None = None,

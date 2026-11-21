@@ -90,6 +90,7 @@ def _edit_constraint(c: dict[str, Any]) -> dict[str, Any]:
     freq_min_hz = _prompt_optional_float("freq_min_hz", c.get("freq_min_hz"))
     freq_max_hz = _prompt_optional_float("freq_max_hz", c.get("freq_max_hz"))
     source_section = _prompt_str("source_section", str(c.get("source_section", "")))
+    entity = _prompt_str("entity", str(c.get("entity", "")))
     notes = strip_conflict_notes(_prompt_str("notes", strip_conflict_notes(str(c.get("notes", "")))))
 
     validated = Constraint(
@@ -100,6 +101,7 @@ def _edit_constraint(c: dict[str, Any]) -> dict[str, Any]:
         page=page,
         snippet=snippet,
         checkable=checkable,
+        entity=entity,
         window_s=window_s,
         freq_min_hz=freq_min_hz,
         freq_max_hz=freq_max_hz,
@@ -219,11 +221,13 @@ def main() -> int:
             "page": int(c["page"]),
             "snippet": c.get("snippet", ""),
             "checkable": bool(c.get("checkable", False)),
+            "entity": str(c.get("entity", "")),
             "window_s": c.get("window_s"),
             "freq_min_hz": c.get("freq_min_hz"),
             "freq_max_hz": c.get("freq_max_hz"),
             "source_section": c.get("source_section", ""),
             "notes": strip_conflict_notes(str(c.get("notes", ""))),
+            "assumptions": list(c.get("assumptions") or []),
         }
         gold_constraints.append(entry)
 

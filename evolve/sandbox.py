@@ -77,7 +77,7 @@ class StaticValidationResult:
 
 @dataclass
 class CandidateEval:
-    """Sandboxed deterministic evaluation of a candidate controller."""
+    """Sandboxed deterministic evaluation of a candidate controller across scenario families."""
 
     passed: bool
     workloads_passed: int
@@ -95,6 +95,11 @@ class CandidateEval:
     timed_out: bool = False
     error: str | None = None
     elapsed_s: float = 0.0
+    workloads_evaluable: int = 0
+    workloads_not_evaluable: int = 0
+    unevaluated_constraints: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    family_summary: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -192,6 +197,7 @@ def compute_composite_score(
     worst_margin_pct: float | None,
     workloads_passed: int,
     workloads_total: int,
+    unevaluated_count: int = 0,
 ) -> float:
     """Compute scalar objective (lower is better); passing always beats failing."""
     if passed:
@@ -201,10 +207,163 @@ def compute_composite_score(
             + 50.0 * mean_battery_wear
             + 0.5 * max_shaft_torque_pu
         )
-    # Failing candidates strictly penalized above 1e6, ranked by fraction failed & margin shortfall
     fail_frac = 1.0 - (workloads_passed / max(1, workloads_total))
     shortfall = max(0.0, -(worst_margin_pct if worst_margin_pct is not None else -1000.0))
-    return 1_000_000.0 + 100_000.0 * fail_frac + min(shortfall, 900_000.0)
+    return 1_000_000.0 + 100_000.0 * fail_frac + 50_000.0 * unevaluated_count + min(shortfall, 900_000.0)
+
+
+def aggregate_per_workload_results(
+    per_wl: list[dict[str, Any]],
+    ruleset: RuleSet,
+    elapsed_s: float,
+    *,
+    strict_review: bool = True,
+) -> CandidateEval:
+    """Aggregate per-workload checker outputs into suite-level and per-family CandidateEval.
+
+    Guarantees:
+    - A trace where all rules are `not_evaluable` is NEVER counted as pass or fail.
+    - Suite-level `passed` requires zero failing rules, zero blocking human-review rules,
+      at least one evaluable trace, AND every checkable rule evaluated on >= 1 trace.
+    """
+    wl_evaluable = sum(1 for w in per_wl if w.get("status", "fail") != "not_evaluable")
+    wl_not_eval = sum(1 for w in per_wl if w.get("status") == "not_evaluable")
+    wl_passed = sum(1 for w in per_wl if w.get("status") == "pass" or (w.get("status") is None and w.get("passed")))
+
+    failing: list[dict[str, Any]] = []
+    worst_margin: float | None = None
+    worst_cid: str | None = None
+    evaluated_cids: set[str] = set()
+    all_assumptions: list[str] = list(ruleset.collect_assumptions())
+
+    for w in per_wl:
+        failing.extend(w.get("failing_constraints", []))
+        wm = w.get("worst_margin_pct")
+        if wm is not None and (worst_margin is None or float(wm) < worst_margin):
+            worst_margin = float(wm)
+            worst_cid = w.get("worst_constraint_id")
+        for r in w.get("results", []):
+            if r.get("status") in {"pass", "fail", "error"}:
+                evaluated_cids.add(str(r.get("constraint_id", "")))
+            for a in r.get("assumptions") or []:
+                if a not in all_assumptions:
+                    all_assumptions.append(a)
+        for a in w.get("assumptions") or []:
+            if a not in all_assumptions:
+                all_assumptions.append(a)
+
+    required_cids = [
+        c.id
+        for c in ruleset.constraints
+        if c.checkable and c.value is not None and not (c.needs_human_review and strict_review)
+    ]
+    unevaluated_cids = [cid for cid in required_cids if cid not in evaluated_cids]
+    has_blocking_review = any(w.get("needs_review_count", 0) > 0 for w in per_wl)
+
+    all_passed = (
+        len(per_wl) > 0
+        and wl_evaluable > 0
+        and wl_passed == wl_evaluable
+        and len(failing) == 0
+        and len(unevaluated_cids) == 0
+        and not (has_blocking_review and strict_review)
+    )
+
+    overheads = [float(w["energy_overhead_pct"]) for w in per_wl]
+    tp_losses = [float(w["throughput_loss_pct"]) for w in per_wl]
+    wears = [float(w["battery_wear_proxy"]) for w in per_wl]
+    torques = [float(w["max_shaft_torque_pu"]) for w in per_wl]
+
+    mean_oh = sum(overheads) / max(1, len(overheads))
+    mean_tp = sum(tp_losses) / max(1, len(tp_losses))
+    mean_wear = sum(wears) / max(1, len(wears))
+    max_torque = max(torques) if torques else 0.0
+
+    # Per-family breakdown ("fast", "slow", etc.)
+    by_family: dict[str, list[dict[str, Any]]] = {}
+    for w in per_wl:
+        fam = str(w.get("family", "fast"))
+        by_family.setdefault(fam, []).append(w)
+
+    family_summary: dict[str, dict[str, Any]] = {}
+    for fam, items in by_family.items():
+        f_eval = sum(1 for w in items if w.get("status") != "not_evaluable")
+        f_ne = sum(1 for w in items if w.get("status") == "not_evaluable")
+        f_pass = sum(1 for w in items if w.get("status") == "pass")
+        f_fails = sum(len(w.get("failing_constraints", [])) for w in items)
+        f_rev = sum(int(w.get("needs_review_count", 0)) for w in items)
+        if f_rev > 0 and strict_review:
+            f_status = "refused"
+        elif f_eval == 0:
+            f_status = "not_evaluable"
+        elif f_fails == 0 and f_pass == f_eval:
+            f_status = "pass"
+        else:
+            f_status = "fail"
+
+        f_wm: float | None = None
+        f_wcid: str | None = None
+        for w in items:
+            wm = w.get("worst_margin_pct")
+            if wm is not None and (f_wm is None or float(wm) < f_wm):
+                f_wm = float(wm)
+                f_wcid = w.get("worst_constraint_id")
+
+        f_times_ms = [float(w.get("eval_time_s", 0.0)) * 1000.0 for w in items]
+        family_summary[fam] = {
+            "status": f_status,
+            "passed": f_status == "pass",
+            "workloads_total": len(items),
+            "workloads_evaluable": f_eval,
+            "workloads_passed": f_pass,
+            "workloads_not_evaluable": f_ne,
+            "mean_energy_overhead_pct": round(sum(float(w["energy_overhead_pct"]) for w in items) / len(items), 3),
+            "mean_throughput_loss_pct": round(sum(float(w["throughput_loss_pct"]) for w in items) / len(items), 3),
+            "mean_battery_wear": round(sum(float(w["battery_wear_proxy"]) for w in items) / len(items), 6),
+            "max_shaft_torque_pu": round(max(float(w["max_shaft_torque_pu"]) for w in items), 5),
+            "worst_margin_pct": round(f_wm, 3) if f_wm is not None else None,
+            "worst_constraint_id": f_wcid,
+            "eval_time_mean_ms": round(sum(f_times_ms) / max(1, len(f_times_ms)), 2),
+            "eval_time_max_ms": round(max(f_times_ms), 2) if f_times_ms else 0.0,
+        }
+
+    score = compute_composite_score(
+        passed=all_passed,
+        mean_energy_overhead_pct=mean_oh,
+        mean_throughput_loss_pct=mean_tp,
+        mean_battery_wear=mean_wear,
+        max_shaft_torque_pu=max_torque,
+        worst_margin_pct=worst_margin,
+        workloads_passed=wl_passed,
+        workloads_total=max(1, wl_evaluable),
+        unevaluated_count=len(unevaluated_cids),
+    )
+
+    err_msg: str | None = None
+    if unevaluated_cids and not failing and not (has_blocking_review and strict_review):
+        err_msg = f"Not evaluable across suite: constraint(s) {unevaluated_cids} had no trace >= 2x window."
+
+    return CandidateEval(
+        passed=all_passed,
+        workloads_passed=wl_passed,
+        workloads_total=len(per_wl),
+        workloads_evaluable=wl_evaluable,
+        workloads_not_evaluable=wl_not_eval,
+        composite_score=score,
+        mean_energy_overhead_pct=mean_oh,
+        mean_throughput_loss_pct=mean_tp,
+        mean_battery_wear=mean_wear,
+        max_shaft_torque_pu=max_torque,
+        worst_margin_pct=worst_margin,
+        worst_constraint_id=worst_cid,
+        failing_constraints=failing,
+        per_workload=per_wl,
+        unevaluated_constraints=unevaluated_cids,
+        assumptions=all_assumptions,
+        family_summary=family_summary,
+        error=err_msg,
+        elapsed_s=elapsed_s,
+    )
 
 
 def _sanitized_env() -> dict[str, str]:
@@ -248,7 +407,7 @@ def evaluate_controller_sandboxed(
     *,
     plant_config: PlantConfig | None = None,
     strict_review: bool = True,
-    timeout_s: float = 6.0,
+    timeout_s: float = 10.0,
     max_lines: int = MAX_CODE_LINES,
 ) -> CandidateEval:
     """Validate and evaluate a candidate controller in an isolated subprocess."""
@@ -362,54 +521,9 @@ def evaluate_controller_sandboxed(
             elapsed_s=elapsed,
         )
 
-    per_wl: list[dict[str, Any]] = out["per_workload"]
-    wl_passed = sum(1 for w in per_wl if w["passed"])
-    all_passed = wl_passed == len(per_wl) and len(per_wl) > 0
-
-    overheads = [float(w["energy_overhead_pct"]) for w in per_wl]
-    tp_losses = [float(w["throughput_loss_pct"]) for w in per_wl]
-    wears = [float(w["battery_wear_proxy"]) for w in per_wl]
-    torques = [float(w["max_shaft_torque_pu"]) for w in per_wl]
-
-    mean_oh = sum(overheads) / max(1, len(overheads))
-    mean_tp = sum(tp_losses) / max(1, len(tp_losses))
-    mean_wear = sum(wears) / max(1, len(wears))
-    max_torque = max(torques) if torques else 0.0
-
-    failing: list[dict[str, Any]] = []
-    worst_margin: float | None = None
-    worst_cid: str | None = None
-
-    for w in per_wl:
-        failing.extend(w.get("failing_constraints", []))
-        wm = w.get("worst_margin_pct")
-        if wm is not None and (worst_margin is None or float(wm) < worst_margin):
-            worst_margin = float(wm)
-            worst_cid = w.get("worst_constraint_id")
-
-    score = compute_composite_score(
-        passed=all_passed,
-        mean_energy_overhead_pct=mean_oh,
-        mean_throughput_loss_pct=mean_tp,
-        mean_battery_wear=mean_wear,
-        max_shaft_torque_pu=max_torque,
-        worst_margin_pct=worst_margin,
-        workloads_passed=wl_passed,
-        workloads_total=len(per_wl),
-    )
-
-    return CandidateEval(
-        passed=all_passed,
-        workloads_passed=wl_passed,
-        workloads_total=len(per_wl),
-        composite_score=score,
-        mean_energy_overhead_pct=mean_oh,
-        mean_throughput_loss_pct=mean_tp,
-        mean_battery_wear=mean_wear,
-        max_shaft_torque_pu=max_torque,
-        worst_margin_pct=worst_margin,
-        worst_constraint_id=worst_cid,
-        failing_constraints=failing,
-        per_workload=per_wl,
+    return aggregate_per_workload_results(
+        out["per_workload"],
+        ruleset=ruleset,
         elapsed_s=elapsed,
+        strict_review=strict_review,
     )

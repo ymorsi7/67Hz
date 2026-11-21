@@ -19,8 +19,13 @@ from google import genai
 from pydantic import BaseModel, Field
 
 from reader.pdf_utils import get_pdf_page_count
-from rules.schema import CHECKABLE_CONSTRAINT_TYPES, Constraint, ConstraintType
-from rules.units import UnitConversionError, normalize_constraint_limit
+from rules.schema import (
+    CHECKABLE_CONSTRAINT_TYPES,
+    Constraint,
+    ConstraintType,
+    canonicalize_entity,
+)
+from rules.units import UnitConversionError, normalize_constraint_limit, parse_window_range_s
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(REPO_ROOT / ".env")
@@ -67,7 +72,11 @@ class ExtractedConstraintItem(BaseModel):
     )
     window_s: float | None = Field(
         default=None,
-        description="Optional averaging or step measurement window in seconds if explicitly stated (e.g. 60 for 1-minute window, 1 for 1-second step).",
+        description=(
+            "Optional averaging or step measurement window in seconds if explicitly stated "
+            "(e.g. 60 for 1-minute window, 5 for 5-second interval). If a window range is stated "
+            "(e.g. '4 to 6 second interval'), set window_s to the larger value (6.0) and note the range."
+        ),
     )
     freq_min_hz: float | None = Field(
         default=None,
@@ -77,13 +86,21 @@ class ExtractedConstraintItem(BaseModel):
         default=None,
         description="Upper frequency bound in Hz for fluctuation_band constraints if explicitly stated.",
     )
+    entity: str = Field(
+        default="",
+        description=(
+            "Explicit utility, ISO/RTO, or standards body this constraint belongs to "
+            "(e.g. 'CAISO', 'ERCOT', 'LIPA', 'Southern Company', 'IESO', 'MISO', 'SPP', 'ATC', 'AESO'). "
+            "In multi-utility comparative tables or industry-practice summaries, ALWAYS name the specific utility."
+        ),
+    )
     source_section: str = Field(
         default="",
-        description="Section header, table title, or specific utility name (e.g. 'ERCOT', 'AEP', 'Section 4.2') if explicitly stated.",
+        description="Section header or table title (e.g. 'Section 4.2', 'Table 4-2') if explicitly stated.",
     )
     notes: str = Field(
         default="",
-        description="Brief factual context (e.g. applies to loads >= 75 MW, normal vs contingency). Never invent numbers.",
+        description="Brief factual context (e.g. applies to loads >= 75 MW, normal vs contingency, or window range). Never invent numbers.",
     )
 
 
@@ -151,8 +168,11 @@ Strict rules:
    Do not emit applicability size thresholds as `max_step` or `dynamic_range`.
 5. UNREADABLE INPUTS: If an image/photo is severely blurred, heavily cropped, or illegible such that
    numbers cannot be read reliably, set `unreadable=true` and do NOT guess numbers.
-6. MULTI-UTILITY DOCUMENTS: When a document compares multiple utilities (e.g. ERCOT, AEP, Dominion, Ameren),
-   record the specific utility name in `source_section` for each constraint.
+6. EXPLICIT ENTITY ATTRIBUTION: Always populate `entity` with the specific utility/ISO/RTO
+   (e.g. CAISO, ERCOT, LIPA, Southern Company, IESO, MISO, SPP, ATC, AESO) that owns or proposes
+   the requirement, especially in multi-utility comparison tables or industry-practice sections.
+7. WINDOW RANGES: If a step or ramp limit specifies a window range (e.g. "4 to 6 second interval"
+   or "4–6 s"), set `window_s` to the larger value (e.g. 6.0) and record the stated range in `notes`.
 """
 
 
@@ -181,6 +201,7 @@ def _normalize_extracted_item(
     rated_mw: float,
     page_offset: int = 0,
     max_page: int | None = None,
+    doc_context: str = "",
 ) -> Constraint:
     """Convert raw Pydantic extraction item into a validated GridSafe Constraint."""
     page = item.page
@@ -193,6 +214,7 @@ def _normalize_extracted_item(
     ctype = item.constraint_type
     checkable = bool(item.checkable)
     notes = item.notes.strip()
+    assumptions: list[str] = []
 
     # Enforce strict checkability via deterministic unit normalizer
     if ctype not in CHECKABLE_CONSTRAINT_TYPES or item.value is None or not item.unit.strip():
@@ -223,6 +245,28 @@ def _normalize_extracted_item(
         f_min, f_max = f_max, f_min
 
     win_s = item.window_s if (item.window_s is not None and item.window_s >= 0) else None
+    # Handle window ranges like "4 to 6 second interval" -> use larger value and note the range
+    if checkable and ctype in (
+        ConstraintType.MAX_STEP.value,
+        ConstraintType.RAMP_RATE.value,
+        ConstraintType.DYNAMIC_RANGE.value,
+    ):
+        win_range = parse_window_range_s(f"{item.snippet} {notes}")
+        if win_range is not None:
+            lo_s, hi_s = win_range
+            if win_s is None or (lo_s - 1e-9 <= win_s < hi_s - 1e-9):
+                win_s = hi_s
+            range_msg = f"Window range {lo_s:g}-{hi_s:g} s stated in source; using upper bound {hi_s:g} s."
+            assumptions.append(range_msg)
+            if range_msg not in notes:
+                notes = f"{notes} ({range_msg})".strip()
+
+    entity = canonicalize_entity(
+        entity=item.entity,
+        source_section=item.source_section,
+        snippet=item.snippet,
+        doc_context=doc_context,
+    )
 
     return Constraint(
         id=f"{ctype}_{idx}",
@@ -233,33 +277,76 @@ def _normalize_extracted_item(
         snippet=item.snippet.strip(),
         checkable=checkable,
         confidence=None,
+        entity=entity,
         window_s=win_s,
         freq_min_hz=f_min,
         freq_max_hz=f_max,
         source_section=item.source_section.strip(),
         notes=notes,
+        assumptions=assumptions,
     )
 
 
-def _deduplicate_constraints(constraints: list[Constraint]) -> list[Constraint]:
-    """Remove exact duplicate constraints while preserving order."""
-    seen: set[tuple[Any, ...]] = set()
+def _deduplicate_constraints(
+    constraints: list[Constraint],
+    rated_mw: float = 100.0,
+) -> list[Constraint]:
+    """Deduplicate identical constraints including limits restated across multiple pages.
+
+    For checkable numeric constraints of the same entity, type, canonical unit,
+    window, and frequency band whose normalized values match within 1%, merge
+    duplicates into a single entry (keeping the earliest page and noting any
+    additional pages where the same limit was restated).
+    """
     unique: list[Constraint] = []
+    checkable_index: dict[tuple[Any, ...], int] = {}
+    seen_other: set[tuple[Any, ...]] = set()
+
     for c in constraints:
-        key = (
-            c.constraint_type,
-            c.value,
-            c.unit.lower().strip(),
-            c.page,
-            c.window_s,
-            c.freq_min_hz,
-            c.freq_max_hz,
-            c.source_section.lower().strip(),
-            c.snippet[:80].lower().strip(),
-        )
-        if key not in seen:
-            seen.add(key)
+        ent_key = c.entity.lower().strip()
+        if c.checkable and c.value is not None:
+            try:
+                norm_val, canon_unit = normalize_constraint_limit(c, rated_mw=rated_mw)
+                val_bucket = round(norm_val, 4)
+            except UnitConversionError:
+                canon_unit = c.unit.lower().strip()
+                val_bucket = round(float(c.value), 4)
+
+            ckey = (
+                ent_key,
+                c.constraint_type,
+                val_bucket,
+                canon_unit,
+                round(float(c.window_s), 6) if c.window_s is not None else None,
+                round(float(c.freq_min_hz), 6) if c.freq_min_hz is not None else None,
+                round(float(c.freq_max_hz), 6) if c.freq_max_hz is not None else None,
+            )
+            if ckey in checkable_index:
+                existing = unique[checkable_index[ckey]]
+                if c.page != existing.page:
+                    also = f"Also stated on p.{c.page}."
+                    if also not in existing.notes:
+                        existing.notes = f"{existing.notes} {also}".strip()
+                if (c.confidence or 0.0) > (existing.confidence or 0.0):
+                    existing.confidence = c.confidence
+                    if c.verified is not None:
+                        existing.verified = c.verified
+                continue
+            checkable_index[ckey] = len(unique)
             unique.append(c)
+        else:
+            okey = (
+                ent_key,
+                c.constraint_type,
+                c.value,
+                c.unit.lower().strip(),
+                c.source_section.lower().strip(),
+                c.snippet[:80].lower().strip(),
+            )
+            if okey not in seen_other:
+                seen_other.add(okey)
+                unique.append(c)
+
     for idx, c in enumerate(unique):
         c.id = f"{c.constraint_type}_{idx}"
     return unique
@@ -269,16 +356,16 @@ def detect_conflicts(
     constraints: list[Constraint],
     rated_mw: float = 100.0,
     rel_tol: float = 0.02,
+    group_by_entity: bool = True,
     group_by_section: bool = False,
 ) -> list[Constraint]:
-    """Flag checkable constraints of the same type/band that specify conflicting numeric limits.
+    """Flag checkable constraints of the same entity/type/band with conflicting numeric limits.
 
-    When `group_by_section=True`, limits attributed to different utility sections (e.g. ERCOT vs AEP
-    in a multi-utility survey) are compared only within the same section. By default (`False`), any
-    two checkable limits of the same type, same canonical unit, same window, and overlapping frequency
-    band that differ by more than `rel_tol` are flagged with `conflict_flag=True`.
+    Conflicts are detected ONLY within the same entity (`group_by_entity=True` by
+    default). Limits attributed to different utilities (e.g. ERCOT vs AESO in a
+    comparative table) are never flagged as conflicts against each other.
     """
-    checkable_indices: list[tuple[int, float, str]] = []
+    checkable_indices: list[tuple[int, float, str, str]] = []
     for idx, c in enumerate(constraints):
         c.conflict_flag = False
         if not c.checkable or c.value is None:
@@ -287,7 +374,8 @@ def detect_conflicts(
             norm_val, canon_unit = normalize_constraint_limit(c, rated_mw=rated_mw)
         except UnitConversionError:
             continue
-        checkable_indices.append((idx, norm_val, canon_unit))
+        ent = canonicalize_entity(c.entity, c.source_section, c.snippet)
+        checkable_indices.append((idx, norm_val, canon_unit, ent.lower()))
 
     def _bands_overlap(a: Constraint, b: Constraint) -> bool:
         if a.constraint_type != ConstraintType.FLUCTUATION_BAND.value:
@@ -296,16 +384,15 @@ def detect_conflicts(
         a_hi = float("inf") if a.freq_max_hz is None else a.freq_max_hz
         b_lo = 0.0 if b.freq_min_hz is None else b.freq_min_hz
         b_hi = float("inf") if b.freq_max_hz is None else b.freq_max_hz
-        # Adjacent bands sharing only a boundary endpoint (e.g. [0.1, 5] and [5, 55]) do not conflict.
         if a_lo == a_hi and b_lo == b_hi:
             return abs(a_lo - b_lo) <= 1e-9
         return max(a_lo, b_lo) < min(a_hi, b_hi) - 1e-9
 
     for i_pos in range(len(checkable_indices)):
-        idx_a, val_a, unit_a = checkable_indices[i_pos]
+        idx_a, val_a, unit_a, ent_a = checkable_indices[i_pos]
         ca = constraints[idx_a]
         for j_pos in range(i_pos + 1, len(checkable_indices)):
-            idx_b, val_b, unit_b = checkable_indices[j_pos]
+            idx_b, val_b, unit_b, ent_b = checkable_indices[j_pos]
             cb = constraints[idx_b]
 
             if ca.constraint_type != cb.constraint_type or unit_a != unit_b:
@@ -313,6 +400,8 @@ def detect_conflicts(
             if ca.window_s != cb.window_s:
                 continue
             if not _bands_overlap(ca, cb):
+                continue
+            if group_by_entity and (ent_a or ent_b) and ent_a != ent_b:
                 continue
             if group_by_section and ca.source_section.lower() != cb.source_section.lower():
                 continue
@@ -380,13 +469,15 @@ def extract_from_image_bytes(
 
     parsed = ExtractionSchema.model_validate_json(interaction.output_text)
     constraints = [
-        _normalize_extracted_item(item, idx, rated_mw=rated_mw, page_offset=0, max_page=page_number)
+        _normalize_extracted_item(
+            item, idx, rated_mw=rated_mw, page_offset=0, max_page=page_number, doc_context=source_name
+        )
         for idx, item in enumerate(parsed.constraints)
     ]
     for c in constraints:
         c.page = page_number
-    constraints = _deduplicate_constraints(constraints)
-    detect_conflicts(constraints, rated_mw=rated_mw)
+    constraints = _deduplicate_constraints(constraints, rated_mw=rated_mw)
+    detect_conflicts(constraints, rated_mw=rated_mw, group_by_entity=True)
 
     return ExtractionOutput(
         source_name=source_name,
@@ -514,6 +605,7 @@ def extract_from_pdf(
                     rated_mw=rated_mw,
                     page_offset=0,
                     max_page=total_pages,
+                    doc_context=path.name,
                 )
                 all_constraints.append(c)
     finally:
@@ -523,8 +615,13 @@ def extract_from_pdf(
             except Exception:
                 pass
 
-    deduped = _deduplicate_constraints(all_constraints)
-    detect_conflicts(deduped, rated_mw=rated_mw, group_by_section=group_conflicts_by_section)
+    deduped = _deduplicate_constraints(all_constraints, rated_mw=rated_mw)
+    detect_conflicts(
+        deduped,
+        rated_mw=rated_mw,
+        group_by_entity=True,
+        group_by_section=group_conflicts_by_section,
+    )
 
     return ExtractionOutput(
         source_name=path.name,
