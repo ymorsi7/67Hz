@@ -5,7 +5,7 @@ All numbers below come directly from deterministic runs of `src/sim/shaft.py`, `
 
 ## 1. IEEE First Benchmark Model Torsional Mode Validation
 
-Source parameters: `config/fbm.yaml` (IEEE SSR Task Force, *First benchmark model for computer simulation of subsynchronous resonance*, IEEE Trans. PAS-96, no. 5, pp. 1565–1572, 1977).
+Source parameters: `config/fbm.yaml` (IEEE SSR Task Force, *First benchmark model for computer simulation of subsynchronous resonance*, IEEE Trans. PAS-96, no. 5, pp. 1565-1572, 1977).
 
 - Base MVA: `892.4` MVA
 - Base frequency: `60.0` Hz (`w0 = 2 * pi * 60` rad/s)

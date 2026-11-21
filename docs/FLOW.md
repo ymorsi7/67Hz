@@ -20,7 +20,7 @@ Local loop is **built**. Agent bridge is **built**. Continuous hardening log (`e
 1. **Engineer** (Hydrogen) invents a controller.
 2. Agents **can’t call each other**, so **our bridge** (plain Python) carries the message.
 3. **Hardener** (Carbon) tries to break that controller.
-4. **Our checker** (plain Python) decides if the break is real — we never trust the AI alone.
+4. **Our checker** (plain Python) decides if the break is real - we never trust the AI alone.
 5. Engineer **fixes**; checker **grades again**.
 
 ## 3. Same style, all Gemini models we use
@@ -29,10 +29,10 @@ Local loop is **built**. Agent bridge is **built**. Continuous hardening log (`e
 
 | Job | Model | Agent? |
 | --- | --- | --- |
-| Read rulebook | `gemini-4-neon` | No — backend Reader |
-| Verify each limit | `gemini-decision-1` | No — backend Verifier |
-| Design / Engineer | `gemini-4-hydrogen` | Yes — `gridsafe-engineer` |
-| Attack / Hardener | `gemini-4-carbon` | Yes — `gridsafe-hardener` |
+| Read rulebook | `gemini-4-neon` | No - backend Reader |
+| Verify each limit | `gemini-decision-1` | No - backend Verifier |
+| Design / Engineer | `gemini-4-hydrogen` | Yes - `gridsafe-engineer` |
+| Attack / Hardener | `gemini-4-carbon` | Yes - `gridsafe-hardener` |
 | Checker + sim + certificate | plain Python | Never AI |
 
 ## 4. Likely judge questions

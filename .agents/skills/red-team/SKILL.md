@@ -7,7 +7,7 @@ description: Attack a candidate controller with adversarial workloads and return
 
 Given a candidate controller and verified constraints, search for break workloads.
 Prefer:
-- resonant periods near IEEE FBM modes (~15–48 Hz) for frequency-band rules
+- resonant periods near IEEE FBM modes (~15-48 Hz) for frequency-band rules
 - abrupt job start / checkpoint / stop edges for ramp and step rules
 - idle-to-full cold starts that stress slew limits
 

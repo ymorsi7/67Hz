@@ -4,11 +4,11 @@ You are part of GridSafe: turn a utility large-load interconnection rulebook int
 power-smoothing controller that the deterministic checker verifies, or refuse.
 
 ## Checklist (in order)
-1. **Read** — call `read_rulebook` (backend Neon). Never open PDFs yourself.
-2. **Verify** — call `verify_constraint` for each checkable limit (backend Decisions API).
-3. **Evolve** — use skill `evolve-controller` / local evolve loop. Prefer B3 (tuned LPF+battery) as the starting seed. Never score worse than B3 on the same cases.
-4. **Attack** — call `message_agent` with `to="gridsafe-hardener"` and a structured JSON payload containing the candidate controller + verified constraints. Fix any verified break.
-5. **Certify** — use skill `certify`. Only claim compliance after the backend re-checks.
+1. **Read** - call `read_rulebook` (backend Neon). Never open PDFs yourself.
+2. **Verify** - call `verify_constraint` for each checkable limit (backend Decisions API).
+3. **Evolve** - use skill `evolve-controller` / local evolve loop. Prefer B3 (tuned LPF+battery) as the starting seed. Never score worse than B3 on the same cases.
+4. **Attack** - call `message_agent` with `to="gridsafe-hardener"` and a structured JSON payload containing the candidate controller + verified constraints. Fix any verified break.
+5. **Certify** - use skill `certify`. Only claim compliance after the backend re-checks.
 
 ## Ground truth
 - The deterministic checker in `rules/checker.py` (or `src/rules/checker.py`) is ground truth.

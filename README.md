@@ -48,7 +48,7 @@ Full tables: [RESULTS.md](RESULTS.md). Failures: [FAILURES.md](FAILURES.md). Quo
 | `gemini-4-hydrogen` | Designer / Engineer | Fast parallel mutations; Antigravity agent `gridsafe-engineer` |
 | `gemini-4-carbon` | Red-team / Hardener | Background Antigravity agent `gridsafe-hardener` for adversarial workloads |
 
-Checker, shaft sim, and certificate math are plain Python + numpy — never AI. See [docs/API_NOTES.md](docs/API_NOTES.md).
+Checker, shaft sim, and certificate math are plain Python + numpy - never AI. See [docs/API_NOTES.md](docs/API_NOTES.md).
 
 ## Managed agents
 

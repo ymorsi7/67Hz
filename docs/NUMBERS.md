@@ -6,7 +6,7 @@ Every value comes from a saved run file. Command shown is how to regenerate or r
 | ---: | --- | --- | --- | --- |
 | 1 | **42.32 s** | `make eval-final` wall-clock | `eval/results/eval_final_timing.json` | `make eval-final SEED=20261121` |
 | 2 | **33/33** (WI [89.6%, 100.0%]) | GridSafe preset pass rate | `eval/results/final_20261121.json` | `make eval-final` / `make report` |
-| 3 | **33/33** | B3 preset pass — matches GridSafe | same → `method_summary.b3` | same |
+| 3 | **33/33** | B3 preset pass - matches GridSafe | same → `method_summary.b3` | same |
 | 4 | **9/11** | GridSafe random-suite all-pass | same | same |
 | 5 | **11/11** | B0 random-suite all-pass | same | same |
 | 6 | **4.051% OH / 11.59% TP** | GridSafe mean cost on passing presets | same | same |

@@ -120,7 +120,7 @@ ans = result.answers["c_0"]
 # ans.noul in [0.01, 0.99] (calibrated P(yes)); ans.confidence = max(noul, 1 - noul)
 ```
 - **Key details**:
-  - `noul` probabilities are clamped to `[0.01, 0.99]` — never set threshold `> 0.99`.
+  - `noul` probabilities are clamped to `[0.01, 0.99]` - never set threshold `> 0.99`.
   - Question keys must match `^[A-Za-z0-9_-]{1,64}$`; the model **never sees question keys**, only `instructions`.
   - `instructions` are text-only; shared `input` accepts text, image, audio, video, PDF (no `gs://`, no YouTube, no context caching).
   - Batching all constraints citing the same page into a single `decisions.create` call runs in one forward pass at flat latency!
@@ -157,7 +157,7 @@ agent = client.agents.create(
 ```
 - **Model per agent**: `agent_config.model` supports `gemini-4-hydrogen` (default), `gemini-4-carbon`, `gemini-4-neon`, `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`.
 - **Important difference from spec**: For a named managed agent created with `agents.create`, `model` **cannot be overridden at interaction time**. Therefore, the background hardening run on `gemini-4-carbon` must either use a second saved agent (e.g., `gridsafe-hardener` with `model: "gemini-4-carbon"`) or invoke `antigravity-preview-09-2026` directly with `agent_config={"type": "antigravity", "model": "gemini-4-carbon"}`.
-- **Important multimodal limitation**: `antigravity-preview-09-2026` only accepts `text` and inline base64 `image` in `input` — **not** `document` (PDF). For PDFs, upload the file into the sandbox (via `environments` file upload or inline/repo) or pass rendered page images.
+- **Important multimodal limitation**: `antigravity-preview-09-2026` only accepts `text` and inline base64 `image` in `input` - **not** `document` (PDF). For PDFs, upload the file into the sandbox (via `environments` file upload or inline/repo) or pass rendered page images.
 - **No root mount**: `target` in `environment.sources` cannot be `/`; mount the repo at `/workspace/repo` and mount `.agents/AGENTS.md`, `.agents/skills/<name>/SKILL.md`, and `.agents/hooks.json` at `.agents/...` (auto-discovered by runtime).
 - **Pre-installed sandbox software**: Ubuntu, Python 3.12 (`numpy`, `pandas`, `requests`, `google-genai`, `beautifulsoup4`, `pyyaml`), Node 22, `git`, `ripgrep`, `jq`. Note that `scipy`, `pymupdf`, and `pytest` are **not** pre-installed; either fork a warm base environment with them installed or install via `pip` / keep checker pure-Python+numpy.
 
