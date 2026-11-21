@@ -349,3 +349,96 @@ class TestHandComputedCheckerCases:
         assert rep_rev.passed is False
         assert rep_rev.needs_review_count == 1
         assert rep_rev.refusal_reason is not None
+
+    def test_fluctuation_band_aggregations_hand_computed(self) -> None:
+        """peak_bin vs adjacent_pair_sum vs band_sum on adjacent FFT bins (hand-computed)."""
+        from rules.checker import _aggregate_band_amps
+
+        # Direct aggregation unit check (exact)
+        amps = np.array([1.0, 3.0, 5.0, 2.0], dtype=np.float64)
+        freqs = np.array([1.0, 1.05, 1.10, 1.15], dtype=np.float64)
+        assert _aggregate_band_amps(amps, freqs, "peak_bin")[0] == pytest.approx(5.0)
+        assert _aggregate_band_amps(amps, freqs, "adjacent_pair_sum")[0] == pytest.approx(8.0)  # 3+5
+        assert _aggregate_band_amps(amps, freqs, "band_sum")[0] == pytest.approx(11.0)
+
+        dt = 0.01
+        t = np.arange(0.0, 20.0, dt)  # df = 0.05 Hz
+        # Two tones in adjacent bins: 1.00 Hz (amp 3) and 1.05 Hz (amp 5)
+        p = 50.0 + 3.0 * np.sin(2 * math.pi * 1.00 * t) + 5.0 * np.sin(2 * math.pi * 1.05 * t)
+
+        c_peak = Constraint(
+            "fluctuation_band",
+            5.0,
+            "MW",
+            page=1,
+            snippet="peak bin limit",
+            freq_min_hz=0.5,
+            freq_max_hz=3.0,
+            aggregation="peak_bin",
+        )
+        c_adj = Constraint(
+            "fluctuation_band",
+            8.0,
+            "MW",
+            page=1,
+            snippet="The P0-pk for the sum of any two adjacent frequency bins shall not exceed 8 MW",
+            freq_min_hz=0.5,
+            freq_max_hz=3.0,
+            aggregation="adjacent_pair_sum",
+        )
+        c_sum = Constraint(
+            "fluctuation_band",
+            8.0,
+            "MW",
+            page=1,
+            snippet="The P0-pk for the sum of all bins shall not exceed 8 MW",
+            freq_min_hz=0.5,
+            freq_max_hz=3.0,
+            aggregation="band_sum",
+        )
+        c_infer = Constraint(
+            "fluctuation_band",
+            8.0,
+            "MW",
+            page=12,
+            snippet="Low Subsynchronous (0.1 - 5.0 Hz): sum of any two adjacent frequency bins shall not exceed 10.0 MW",
+            freq_min_hz=0.1,
+            freq_max_hz=5.0,
+        )
+        assert c_infer.aggregation == "adjacent_pair_sum"
+
+        rep_peak = check_trace(p, dt_s=dt, ruleset=RuleSet(rated_mw=100.0, constraints=[c_peak]))
+        assert rep_peak.results[0].measured == pytest.approx(5.0, rel=0.08, abs=0.4)
+
+        rep_adj = check_trace(p, dt_s=dt, ruleset=RuleSet(rated_mw=100.0, constraints=[c_adj]))
+        assert rep_adj.results[0].measured == pytest.approx(8.0, rel=0.10, abs=0.6)
+        assert rep_adj.results[0].status == "pass"
+
+        rep_sum = check_trace(p, dt_s=dt, ruleset=RuleSet(rated_mw=100.0, constraints=[c_sum]))
+        # band_sum >= adjacent_pair_sum (>= 8); peak_bin (~5) is strictly smaller
+        assert rep_sum.results[0].measured >= rep_adj.results[0].measured - 0.2
+        assert rep_peak.results[0].measured < rep_sum.results[0].measured - 1.0
+
+    def test_lipa_60s_band_not_evaluable_on_20s_fast_trace(self) -> None:
+        c = Constraint(
+            "fluctuation_band",
+            10.0,
+            "MW",
+            page=12,
+            snippet="sum of any two adjacent frequency bins shall not exceed 10.0 MW0-pk,avg (60 second rolling window).",
+            notes="10 s FFT window",
+            freq_min_hz=0.1,
+            freq_max_hz=5.0,
+            window_s=60.0,
+            fft_window_s=10.0,
+        )
+        assert c.aggregation == "adjacent_pair_sum"
+        assert c.averaging_window_s == pytest.approx(60.0)
+        p20 = np.full(10_000, 50.0)  # 20 s @ 0.002
+        rep = check_trace(p20, dt_s=0.002, ruleset=RuleSet(rated_mw=100.0, constraints=[c]))
+        assert rep.results[0].status == "not_evaluable"
+        # band_long 120 s @ 0.01 is evaluable
+        p120 = np.full(12_000, 50.0)
+        rep2 = check_trace(p120, dt_s=0.01, ruleset=RuleSet(rated_mw=100.0, constraints=[c]))
+        assert rep2.results[0].status in {"pass", "fail"}
+        assert rep2.results[0].status != "not_evaluable"

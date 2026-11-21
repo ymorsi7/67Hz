@@ -135,17 +135,17 @@ def _measure_dynamic_range(
     return _sliding_window_range_max(arr, k)
 
 
-def _measure_fluctuation_band_mw(
-    p_grid_mw: np.ndarray,
+def _fft_band_amplitudes(
+    segment_mw: np.ndarray,
     dt_s: float,
     freq_min_hz: float | None,
     freq_max_hz: float | None,
-) -> tuple[float, float]:
-    """One-sided FFT peak amplitude (MW) within [freq_min_hz, freq_max_hz] (excluding DC)."""
-    n = len(p_grid_mw)
+) -> tuple[np.ndarray, np.ndarray]:
+    """One-sided FFT zero-to-peak amplitudes (MW) and frequencies inside the band (excl. DC)."""
+    n = len(segment_mw)
     if n < 2:
-        return 0.0, 0.0
-    dp = p_grid_mw - float(np.mean(p_grid_mw))
+        return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
+    dp = segment_mw - float(np.mean(segment_mw))
     freqs = np.fft.rfftfreq(n, d=dt_s)
     fft_vals = np.fft.rfft(dp)
     scale = np.full(len(freqs), 2.0 / n, dtype=np.float64)
@@ -153,18 +153,92 @@ def _measure_fluctuation_band_mw(
     if n % 2 == 0:
         scale[-1] = 1.0 / n
     amps = np.abs(fft_vals) * scale
-
     f_lo = 0.0 if freq_min_hz is None else float(freq_min_hz)
     f_hi = float("inf") if freq_max_hz is None else float(freq_max_hz)
-
     mask = (freqs > 0.0) & (freqs >= f_lo - 1e-12) & (freqs <= f_hi + 1e-12)
-    if not np.any(mask):
-        return 0.0, 0.0
+    return amps[mask], freqs[mask]
 
-    band_amps = amps[mask]
-    band_freqs = freqs[mask]
-    idx = int(np.argmax(band_amps))
-    return float(band_amps[idx]), float(band_freqs[idx])
+
+def _aggregate_band_amps(amps: np.ndarray, freqs: np.ndarray, aggregation: str) -> tuple[float, float]:
+    """Return (metric_mw, detail_hz) for peak_bin / adjacent_pair_sum / band_sum."""
+    from rules.schema import (
+        AGGREGATION_ADJACENT_PAIR_SUM,
+        AGGREGATION_BAND_SUM,
+        AGGREGATION_PEAK_BIN,
+    )
+
+    if len(amps) == 0:
+        return 0.0, 0.0
+    if aggregation == AGGREGATION_BAND_SUM:
+        return float(np.sum(amps)), float(freqs[int(np.argmax(amps))])
+    if aggregation == AGGREGATION_ADJACENT_PAIR_SUM:
+        if len(amps) == 1:
+            return float(amps[0]), float(freqs[0])
+        pair_sums = amps[:-1] + amps[1:]
+        idx = int(np.argmax(pair_sums))
+        return float(pair_sums[idx]), float(0.5 * (freqs[idx] + freqs[idx + 1]))
+    # peak_bin default
+    idx = int(np.argmax(amps))
+    return float(amps[idx]), float(freqs[idx])
+
+
+def _measure_fluctuation_band_mw(
+    p_grid_mw: np.ndarray,
+    dt_s: float,
+    freq_min_hz: float | None,
+    freq_max_hz: float | None,
+    *,
+    aggregation: str = "peak_bin",
+    fft_window_s: float | None = None,
+    averaging_window_s: float | None = None,
+) -> tuple[float, float, str]:
+    """Measure fluctuation-band metric (MW). Returns (measured, detail_hz, detail_txt)."""
+    n = len(p_grid_mw)
+    if n < 2:
+        return 0.0, 0.0, "empty trace"
+
+    # Whole-trace FFT when no FFT window stated (legacy / peak_bin default path).
+    if fft_window_s is None or fft_window_s <= dt_s:
+        amps, freqs = _fft_band_amplitudes(p_grid_mw, dt_s, freq_min_hz, freq_max_hz)
+        measured, detail_hz = _aggregate_band_amps(amps, freqs, aggregation)
+        return measured, detail_hz, f"whole-trace FFT aggregation={aggregation}"
+
+    win_n = max(2, int(round(float(fft_window_s) / dt_s)))
+    if win_n > n:
+        amps, freqs = _fft_band_amplitudes(p_grid_mw, dt_s, freq_min_hz, freq_max_hz)
+        measured, detail_hz = _aggregate_band_amps(amps, freqs, aggregation)
+        return measured, detail_hz, "fft_window longer than trace; used whole-trace FFT"
+
+    # Hop by half window (or 1 sample floor) for sliding FFT windows
+    hop = max(1, win_n // 2)
+    series: list[float] = []
+    detail_hz = 0.0
+    for start in range(0, n - win_n + 1, hop):
+        seg = p_grid_mw[start : start + win_n]
+        amps, freqs = _fft_band_amplitudes(seg, dt_s, freq_min_hz, freq_max_hz)
+        m, hz = _aggregate_band_amps(amps, freqs, aggregation)
+        series.append(m)
+        if m >= (max(series) if series else m):
+            detail_hz = hz
+    if not series:
+        return 0.0, 0.0, "no FFT windows"
+
+    metric = np.asarray(series, dtype=np.float64)
+    if averaging_window_s is not None and averaging_window_s > 0:
+        # Each series sample spans `hop * dt_s` seconds of advance
+        avg_n = max(1, int(round(float(averaging_window_s) / (hop * dt_s))))
+        if avg_n <= 1 or avg_n > len(metric):
+            measured = float(np.max(metric))
+            detail = f"max over FFT windows; avg_window unused (avg_n={avg_n})"
+        else:
+            kernel = np.ones(avg_n, dtype=np.float64) / avg_n
+            rolled = np.convolve(metric, kernel, mode="valid")
+            measured = float(np.max(rolled))
+            detail = f"max of {averaging_window_s:g}s rolling avg over FFT windows (agg={aggregation})"
+    else:
+        measured = float(np.max(metric))
+        detail = f"max over FFT windows (agg={aggregation})"
+    return measured, float(detail_hz), detail
 
 
 def _evaluate_single_constraint(
@@ -380,13 +454,51 @@ def _evaluate_single_constraint(
                 if note not in assumptions:
                     assumptions.append(note)
 
-            measured, peak_hz = _measure_fluctuation_band_mw(
-                p_grid_mw, dt_s, constraint.freq_min_hz, constraint.freq_max_hz
+            # Band rules with an explicit measurement / averaging window need >= 2x that window.
+            band_window_s = None
+            for w_candidate in (
+                getattr(constraint, "averaging_window_s", None),
+                constraint.window_s,
+                getattr(constraint, "fft_window_s", None),
+            ):
+                if w_candidate is not None and float(w_candidate) > 0:
+                    band_window_s = float(w_candidate) if band_window_s is None else max(band_window_s, float(w_candidate))
+            if band_window_s is not None and trace_duration_s < 2.0 * band_window_s - 1e-9:
+                return RuleCheckResult(
+                    constraint_id=constraint.id,
+                    constraint_type=ctype,
+                    status="not_evaluable",
+                    passed=None,
+                    measured=None,
+                    limit=float(limit),
+                    margin=None,
+                    margin_pct=None,
+                    canonical_unit=canon_unit,
+                    page=constraint.page,
+                    snippet=constraint.snippet,
+                    confidence=constraint.confidence,
+                    entity=constraint.entity,
+                    details=(
+                        f"Not evaluable on this trace: duration {trace_duration_s:g}s "
+                        f"< 2x band measurement window {band_window_s:g}s."
+                    ),
+                    assumptions=assumptions,
+                )
+
+            agg = getattr(constraint, "aggregation", "peak_bin") or "peak_bin"
+            measured, peak_hz, meas_detail = _measure_fluctuation_band_mw(
+                p_grid_mw,
+                dt_s,
+                constraint.freq_min_hz,
+                constraint.freq_max_hz,
+                aggregation=agg,
+                fft_window_s=getattr(constraint, "fft_window_s", None),
+                averaging_window_s=getattr(constraint, "averaging_window_s", None),
             )
             hi_txt = f"{constraint.freq_max_hz:g}" if constraint.freq_max_hz is not None else "inf"
             details = (
-                f"Band [{f_lo:g}, {hi_txt}] Hz peak amplitude at {peak_hz:.2f} Hz: "
-                f"{measured:.4f} vs limit {limit:.4f} MW"
+                f"Band [{f_lo:g}, {hi_txt}] Hz aggregation={agg} near {peak_hz:.2f} Hz "
+                f"({meas_detail}): {measured:.4f} vs limit {limit:.4f} MW"
             )
     else:
         return RuleCheckResult(

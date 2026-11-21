@@ -101,6 +101,16 @@ def _append_unique(items: list[str], msg: str) -> None:
         items.append(msg)
 
 
+AGGREGATION_PEAK_BIN = "peak_bin"
+AGGREGATION_ADJACENT_PAIR_SUM = "adjacent_pair_sum"
+AGGREGATION_BAND_SUM = "band_sum"
+VALID_AGGREGATIONS = {
+    AGGREGATION_PEAK_BIN,
+    AGGREGATION_ADJACENT_PAIR_SUM,
+    AGGREGATION_BAND_SUM,
+}
+
+
 @dataclass
 class Constraint:
     """Single interconnection rule extracted from a utility document."""
@@ -117,6 +127,11 @@ class Constraint:
     window_s: float | None = None
     freq_min_hz: float | None = None
     freq_max_hz: float | None = None
+    # Frequency-band measurement semantics (LIPA Table 4-2 and similar):
+    # peak_bin (default), adjacent_pair_sum, band_sum
+    aggregation: str = AGGREGATION_PEAK_BIN
+    fft_window_s: float | None = None
+    averaging_window_s: float | None = None
     source_section: str = ""
     verified: bool | None = None
     needs_human_review: bool = False
@@ -157,6 +172,14 @@ class Constraint:
             and self.freq_max_hz < self.freq_min_hz
         ):
             raise ValueError("freq_max_hz must be >= freq_min_hz")
+
+        self.aggregation = str(self.aggregation or AGGREGATION_PEAK_BIN).strip().lower()
+        if self.aggregation not in VALID_AGGREGATIONS:
+            raise ValueError(f"Unsupported aggregation: {self.aggregation!r}")
+        if self.fft_window_s is not None and self.fft_window_s <= 0:
+            raise ValueError(f"fft_window_s must be positive, got {self.fft_window_s}")
+        if self.averaging_window_s is not None and self.averaging_window_s <= 0:
+            raise ValueError(f"averaging_window_s must be positive, got {self.averaging_window_s}")
 
         self.entity = str(self.entity or "").strip()
         if self.assumptions is None:
@@ -224,6 +247,31 @@ class Constraint:
                     "(60 Hz SSTI/SSCI band covering IEEE FBM torsional modes 15.7-47.5 Hz).",
                 )
 
+            # 4. Frequency-band aggregation: infer from wording when present; else peak_bin + assumption.
+            if self.constraint_type == ConstraintType.FLUCTUATION_BAND.value and not is_pu_torque:
+                text = f"{self.snippet} {self.notes}".lower()
+                if self.aggregation == AGGREGATION_PEAK_BIN:
+                    if "sum of any two adjacent" in text or "two adjacent" in text:
+                        self.aggregation = AGGREGATION_ADJACENT_PAIR_SUM
+                    elif "sum of all bins" in text or "sum of all frequency bins" in text:
+                        self.aggregation = AGGREGATION_BAND_SUM
+                    else:
+                        _append_unique(
+                            self.assumptions,
+                            "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                        )
+                # averaging window: prefer explicit averaging_window_s; else reuse window_s when stated as rolling avg
+                if self.averaging_window_s is None and self.window_s is not None:
+                    if "rolling" in text or "avg" in text or "average" in text or "p0-pk" in text:
+                        self.averaging_window_s = float(self.window_s)
+                # FFT window from notes like "10 s FFT window" / "1.0 s FFT"
+                if self.fft_window_s is None:
+                    import re as _re
+
+                    m = _re.search(r"(\d+(?:\.\d+)?)\s*s(?:econd)?s?\s+fft\s+window", text)
+                    if m:
+                        self.fft_window_s = float(m.group(1))
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -242,6 +290,9 @@ class Constraint:
             "window_s",
             "freq_min_hz",
             "freq_max_hz",
+            "aggregation",
+            "fft_window_s",
+            "averaging_window_s",
             "source_section",
             "verified",
             "needs_human_review",

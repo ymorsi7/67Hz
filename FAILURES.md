@@ -172,6 +172,22 @@ Tracks real failure modes discovered during development, live runs on real utili
   - Full red-team hardener turn: **timeout / no reply** -> ACK / structured package turns **`10–24 s`**.
   - LIPA F11 (`eval/agent_threads/lipa_f11_20261121T182024Z_summary.json`): hardener break package **`24.0 s`**, engineer fix `fallback_b3` **`25.3 s`**, backend confirms presets **PASS**, Rand20 **PASS**, counterexample no longer breaks; original controller still breaks (non-vacuous).
 
+---
+
+## F15. Frequency-Band Rules Collapsed Distinct Aggregations Into One Peak Bin
+
+- **Category:** Checker / document fidelity (`rules/schema.py`, `rules/checker.py`, `workload/synth.py`)
+- **Example:** LIPA Table 4-2 (native PDF pp. 9–12) states three different metrics in the same bands:
+  - `0.1–5 Hz`: **sum of any two adjacent bins** ≤ 10 MW (60 s rolling avg, 10 s FFT)
+  - `0.1–5 Hz`: **sum of all bins** ≤ 20 MW (same windows)
+  - `5–55 Hz`: **sum of any two adjacent bins** ≤ 3.5 MW (10 s rolling avg, 1 s FFT)
+  Before this fix, every `fluctuation_band` used the largest single FFT bin over the whole trace, so the 10 MW and 20 MW LIPA limits received the **same measured number**. The live CAISO-straw LIPA profile also lacked windows, so the 0.1–5 Hz rule was judged on the **fast** family only (`20 s @ 0.002 s`, Nyquist 250 Hz, Δf=0.05 Hz) — that trace *can* represent 1–5 Hz content, but it cannot satisfy a **60 s** averaging window (`2×60 s = 120 s` required).
+- **What changed:** Added `aggregation` (`peak_bin` \| `adjacent_pair_sum` \| `band_sum`), `fft_window_s`, `averaging_window_s` on `Constraint` (Reader fields + snippet inference; default `peak_bin` recorded as an assumption). Checker implements all three aggregations with sliding FFT windows and rolling averages, and marks traces `< 2×` the band window `not_evaluable`. Added `band_long` family (`120 s @ 0.01 s`) for long-window low-frequency bands.
+- **Before vs After (gold LIPA wording, steady 50 MW probe):**
+  - Fast `20 s`: `0.1–5 Hz` adjacent/sum rules **evaluated as peak_bin (wrong)** → **`not_evaluable`** (window gate).
+  - `band_long` `120 s`: same rules **evaluable**; aggregations distinguish adjacent-pair vs band-sum on hand-computed two-tone tests.
+  - Native LIPA re-read → profile **`lipa_pseg`** (4 checkable rules with correct aggregations). Preset rerun: Noop/B1 **FAIL**; B3 seed101 **PASS** OH **3.38%**; GridSafe seeds **101/202/303** all **`evolved_compliant`** (OH **3.48% / 3.50% / 3.81%**) — seed 101 no longer hits the **41.4%** conservative floor (old CAISO-straw `lipa` profile).
+
 
 
 

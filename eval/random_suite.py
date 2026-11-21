@@ -51,6 +51,26 @@ PARAMETER_RANGES: dict[str, dict[str, Any]] = {
         "idle_fraction_uniform": (0.10, 0.25),
         "noise_std_fraction_uniform": (0.0, 0.015),
     },
+    "band_long": {
+        "duration_s": 120.0,
+        "dt_s": 0.01,
+        "period_s_log_uniform": (0.2, 10.0),  # 0.1–5 Hz band content
+        "duty_cycle_uniform": (0.40, 0.85),
+        "depth_uniform": (0.20, 0.65),
+        "jitter_uniform": (0.0, 0.10),
+        "edge_s_log_uniform": (0.02, 0.5),
+        "checkpoint_prob": 0.50,
+        "checkpoint_interval_s_uniform": (20.0, 50.0),
+        "checkpoint_duration_s_uniform": (1.0, 5.0),
+        "checkpoint_depth_uniform": (0.45, 0.80),
+        "job_start_s_uniform": (2.0, 15.0),
+        "job_start_ramp_s_log_uniform": (0.1, 5.0),
+        "job_stop_prob": 0.60,
+        "job_stop_s_uniform": (90.0, 115.0),
+        "job_stop_ramp_s_log_uniform": (0.1, 4.0),
+        "idle_fraction_uniform": (0.10, 0.25),
+        "noise_std_fraction_uniform": (0.0, 0.01),
+    },
     "slow": {
         "duration_s": 1800.0,
         "dt_s": 0.5,
@@ -133,6 +153,35 @@ def _sample_slow_one(rng: np.random.Generator, idx: int, cluster_mw: float) -> W
     )
 
 
+def _sample_band_long_one(rng: np.random.Generator, idx: int, cluster_mw: float) -> WorkloadParams:
+    r = PARAMETER_RANGES["band_long"]
+    has_ckpt = bool(rng.random() < r["checkpoint_prob"])
+    has_stop = bool(rng.random() < r["job_stop_prob"])
+    return WorkloadParams(
+        cluster_mw=float(cluster_mw),
+        duration_s=float(r["duration_s"]),
+        dt_s=float(r["dt_s"]),
+        period_s=round(_log_uniform(rng, *r["period_s_log_uniform"]), 4),
+        duty_cycle=round(float(rng.uniform(*r["duty_cycle_uniform"])), 4),
+        depth=round(float(rng.uniform(*r["depth_uniform"])), 4),
+        jitter=round(float(rng.uniform(*r["jitter_uniform"])), 4),
+        edge_s=round(_log_uniform(rng, *r["edge_s_log_uniform"]), 4),
+        checkpoint_interval_s=(
+            round(float(rng.uniform(*r["checkpoint_interval_s_uniform"])), 2) if has_ckpt else None
+        ),
+        checkpoint_duration_s=round(float(rng.uniform(*r["checkpoint_duration_s_uniform"])), 3),
+        checkpoint_depth=round(float(rng.uniform(*r["checkpoint_depth_uniform"])), 4),
+        job_start_s=round(float(rng.uniform(*r["job_start_s_uniform"])), 2),
+        job_start_ramp_s=round(_log_uniform(rng, *r["job_start_ramp_s_log_uniform"]), 3),
+        job_stop_s=(round(float(rng.uniform(*r["job_stop_s_uniform"])), 2) if has_stop else None),
+        job_stop_ramp_s=round(_log_uniform(rng, *r["job_stop_ramp_s_log_uniform"]), 3),
+        idle_fraction=round(float(rng.uniform(*r["idle_fraction_uniform"])), 4),
+        noise_std_fraction=round(float(rng.uniform(*r["noise_std_fraction_uniform"])), 5),
+        seed=int(rng.integers(1, 2**31 - 1)),
+        family="band_long",
+    )
+
+
 def sample_random_suite(
     n: int = 20,
     *,
@@ -150,29 +199,35 @@ def sample_random_suite(
         raise ValueError("n must be >= 1")
     rng_fast = np.random.default_rng([int(seed), 1])
     rng_slow = np.random.default_rng([int(seed), 2])
+    rng_band = np.random.default_rng([int(seed), 3])
     out: dict[str, WorkloadParams] = {}
 
     if family == "fast":
-        n_fast, n_slow = n, 0
+        n_fast, n_slow, n_band = n, 0, 0
     elif family == "slow":
-        n_fast, n_slow = 0, n
+        n_fast, n_slow, n_band = 0, n, 0
+    elif family == "band_long":
+        n_fast, n_slow, n_band = 0, 0, n
     elif family == "both":
         n_fast = n // 2
         n_slow = n - n_fast
+        n_band = 0
     else:
-        raise ValueError(f"Unsupported family: {family!r} (expected 'fast', 'slow', or 'both')")
+        raise ValueError(f"Unsupported family: {family!r} (expected 'fast', 'slow', 'band_long', or 'both')")
 
     for i in range(n_fast):
         out[f"rand_fast_{i:02d}"] = _sample_fast_one(rng_fast, i, cluster_mw=cluster_mw)
     for j in range(n_slow):
         out[f"rand_slow_{j:02d}"] = _sample_slow_one(rng_slow, j, cluster_mw=cluster_mw)
+    for k in range(n_band):
+        out[f"rand_band_{k:02d}"] = _sample_band_long_one(rng_band, k, cluster_mw=cluster_mw)
     return out
 
 
 def evaluable_families_for_ruleset(ruleset: RuleSet) -> list[str]:
-    """Return which workload families ('fast', 'slow') have >= 1 evaluable rule for `ruleset`."""
+    """Return which workload families have >= 1 evaluable rule for `ruleset`."""
     evaluable: list[str] = []
-    for fam in ("fast", "slow"):
+    for fam in ("fast", "slow", "band_long"):
         r = PARAMETER_RANGES[fam]
         dur = float(r["duration_s"])
         dt = float(r["dt_s"])
@@ -193,15 +248,19 @@ def sample_random_suite_for_ruleset(
 ) -> dict[str, WorkloadParams]:
     """Sample N deterministic unseen workloads guaranteed to be evaluable for `ruleset`.
 
-    - Dual-family rulesets (both fast and slow evaluable) get n//2 fast + (n - n//2) slow.
-    - Single-family rulesets (fast-only or slow-only) get all N workloads from that family.
+    Prefer fast+slow when both work. If only band_long qualifies (long averaging windows),
+    sample all N from band_long.
     """
     mw = float(cluster_mw if cluster_mw is not None else ruleset.rated_mw)
-    fams = evaluable_families_for_ruleset(ruleset)
-    if fams == ["fast"]:
+    fams = set(evaluable_families_for_ruleset(ruleset))
+    if "fast" in fams and "slow" in fams:
+        fam_mode = "both"
+    elif "fast" in fams:
         fam_mode = "fast"
-    elif fams == ["slow"]:
+    elif "slow" in fams:
         fam_mode = "slow"
+    elif "band_long" in fams:
+        fam_mode = "band_long"
     else:
         fam_mode = "both"
     return sample_random_suite(n=n, seed=seed, cluster_mw=mw, family=fam_mode)

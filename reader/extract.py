@@ -86,6 +86,23 @@ class ExtractedConstraintItem(BaseModel):
         default=None,
         description="Upper frequency bound in Hz for fluctuation_band constraints if explicitly stated.",
     )
+    aggregation: Literal["peak_bin", "adjacent_pair_sum", "band_sum"] | None = Field(
+        default=None,
+        description=(
+            "For fluctuation_band only, when the document states how bins are combined: "
+            "'adjacent_pair_sum' if 'sum of any two adjacent' bins; "
+            "'band_sum' if 'sum of all bins'; "
+            "'peak_bin' if a single-bin / peak limit. Null if unspecified."
+        ),
+    )
+    fft_window_s: float | None = Field(
+        default=None,
+        description="FFT analysis window in seconds if explicitly stated (e.g. 10 s FFT window).",
+    )
+    averaging_window_s: float | None = Field(
+        default=None,
+        description="Rolling averaging window in seconds for P0-pk,avg style limits if explicitly stated.",
+    )
     entity: str = Field(
         default="",
         description=(
@@ -268,6 +285,9 @@ def _normalize_extracted_item(
         doc_context=doc_context,
     )
 
+    aggregation = getattr(item, "aggregation", None) or "peak_bin"
+    fft_win = getattr(item, "fft_window_s", None)
+    avg_win = getattr(item, "averaging_window_s", None)
     return Constraint(
         id=f"{ctype}_{idx}",
         constraint_type=ctype,
@@ -281,6 +301,9 @@ def _normalize_extracted_item(
         window_s=win_s,
         freq_min_hz=f_min,
         freq_max_hz=f_max,
+        aggregation=str(aggregation),
+        fft_window_s=float(fft_win) if fft_win is not None and float(fft_win) > 0 else None,
+        averaging_window_s=float(avg_win) if avg_win is not None and float(avg_win) > 0 else None,
         source_section=item.source_section.strip(),
         notes=notes,
         assumptions=assumptions,

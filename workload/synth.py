@@ -368,9 +368,63 @@ def preset_workloads(cluster_mw: float = 100.0) -> dict[str, WorkloadParams]:
     return fast_preset_workloads(cluster_mw=cluster_mw)
 
 
+def band_long_preset_workloads(cluster_mw: float = 100.0) -> dict[str, WorkloadParams]:
+    """Long-window frequency-band family: 120 s @ 0.01 s (Nyquist 50 Hz).
+
+    Qualifies LIPA-style 0.1–5 Hz rules that need >= 2x a 60 s averaging window
+    and >= 60 Hz sample rate, which the 20 s fast family cannot satisfy.
+    """
+    mw = float(cluster_mw)
+    return {
+        "band_long_training": WorkloadParams(
+            cluster_mw=mw,
+            duration_s=120.0,
+            dt_s=0.01,
+            period_s=0.4,
+            duty_cycle=0.7,
+            depth=0.45,
+            jitter=0.05,
+            edge_s=0.05,
+            checkpoint_interval_s=25.0,
+            checkpoint_duration_s=2.0,
+            checkpoint_depth=0.6,
+            job_start_s=5.0,
+            job_start_ramp_s=2.0,
+            job_stop_s=110.0,
+            job_stop_ramp_s=2.0,
+            idle_fraction=0.15,
+            noise_std_fraction=0.005,
+            seed=501,
+            family="band_long",
+        ),
+        "band_long_resonant": WorkloadParams(
+            cluster_mw=mw,
+            duration_s=120.0,
+            dt_s=0.01,
+            period_s=0.5,  # 2 Hz inside 0.1–5 Hz
+            duty_cycle=0.55,
+            depth=0.55,
+            jitter=0.02,
+            edge_s=0.02,
+            checkpoint_interval_s=None,
+            checkpoint_duration_s=1.0,
+            checkpoint_depth=0.5,
+            job_start_s=2.0,
+            job_start_ramp_s=0.5,
+            job_stop_s=115.0,
+            job_stop_ramp_s=1.0,
+            idle_fraction=0.15,
+            noise_std_fraction=0.002,
+            seed=502,
+            family="band_long",
+        ),
+    }
+
+
 def all_preset_workloads(cluster_mw: float = 100.0) -> dict[str, WorkloadParams]:
-    """Combined fast (20 s @ 0.002 s) + slow (30 min @ 0.5 s) scenario families."""
+    """Combined fast + slow + band_long scenario families."""
     return {
         **fast_preset_workloads(cluster_mw=cluster_mw),
         **slow_preset_workloads(cluster_mw=cluster_mw),
+        **band_long_preset_workloads(cluster_mw=cluster_mw),
     }

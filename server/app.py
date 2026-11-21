@@ -32,6 +32,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# UI local-loop API (Reader → Verifier → Evolve → Attack → Certify).
+# Defined in server/ui_api.py; edited by a parallel agent — mount only here.
+from server.ui_api import ui_router  # noqa: E402
+
+app.include_router(ui_router)
+
+# Managed-agent bridge API for the UI (harden SSE, tally, threads).
+from server.agent_api import agent_router  # noqa: E402
+
+app.include_router(agent_router)
+
 
 def load_models_config() -> dict[str, Any]:
     if not MODELS_CONFIG_PATH.exists():
