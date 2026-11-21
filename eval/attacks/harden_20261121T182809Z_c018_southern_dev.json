@@ -1,0 +1,21 @@
+{
+  "reply": {
+    "ok": false,
+    "from": "gridsafe-hardener",
+    "to": "gridsafe-engineer",
+    "round": 18,
+    "latency_s": 90.039,
+    "error": "APITimeoutError: Request timed out. This is a client-side timeout. You can increase the timeout by setting the `timeout` argument on your request or in the client http options.",
+    "reply": {
+      "status": "no_break_within_budget",
+      "notes": "hardener timed out; host will verify independently",
+      "counterexamples": []
+    }
+  },
+  "check": {
+    "break_found": false,
+    "verified_breaks": [],
+    "source": "host_random_suite"
+  },
+  "controller_code": "import math\n\nTAU_S = 0.05\nSOC_KP = 0.15\nSOC_TARGET = 0.50\nPRELOAD_MW = 25.0\nSTEP6_MAX = 9.8\nRAMP60_MAX = 19.6\n\n\ndef control(obs: dict) -> dict[str, float]:\n    p_raw = float(obs[\"p_raw_mw\"])\n    rated = float(obs[\"rated_mw\"])\n    dt = float(obs[\"dt\"])\n    t = float(obs[\"t\"])\n    soc = float(obs[\"soc\"])\n    b_max = float(obs[\"battery_max_power_mw\"])\n    cap = float(obs[\"battery_capacity_mwh\"])\n    e = float(obs[\"battery_energy_mwh\"])\n    idle = float(obs.get(\"idle_mw\", obs[\"p_prev_grid_mw\"]))\n    st = obs[\"state\"]\n\n    if \"y1\" not in st:\n        s_dt = max(dt, 0.1)\n        n60 = int(math.ceil(60.0 / s_dt)) + 1\n        n6 = int(math.ceil(6.0 / s_dt)) + 1\n        st.update({\"y1\": idle, \"y2\": idle, \"s_dt\": s_dt,\n                   \"n60\": n60, \"n6\": n6, \"buf\": [idle] * n60, \"idx\": 0, \"last_t\": t})\n\n    dt_h = dt / 3600.0\n    eta = math.sqrt(0.90)\n    b_dis_max = min(b_max, max(0.0, (e - 0.1 * cap) * eta / dt_h))\n    b_chg_max = min(b_max, max(0.0, (0.9 * cap - e) / (eta * dt_h)))\n\n    if p_raw <= idle + 2.0 and soc < 0.85:\n        desired_in = min(rated, p_raw + min(PRELOAD_MW, b_chg_max))\n    else:\n        desired_in = min(rated, max(0.0, p_raw + SOC_KP * (SOC_TARGET - soc) * b_max))\n\n    alpha = dt / (TAU_S + dt)\n    st[\"y1\"] = (1.0 - alpha) * st[\"y1\"] + alpha * desired_in\n    st[\"y2\"] = (1.0 - alpha) * st[\"y2\"] + alpha * st[\"y1\"]\n\n    buf, idx, n60, n6 = st[\"buf\"], st[\"idx\"], st[\"n60\"], st[\"n6\"]\n    min60, max60 = min(buf), max(buf)\n    w6 = [buf[(idx - k) % n60] for k in range(n6)]\n    min6, max6 = min(w6), max(w6)\n\n    p_lo = max(max6 - STEP6_MAX, max60 - RAMP60_MAX, 0.0)\n    p_hi = min(min6 + STEP6_MAX, min60 + RAMP60_MAX, rated)\n    p_target = min(p_hi, max(p_lo, st[\"y2\"]))\n\n    if t - st[\"last_t\"] >= st[\"s_dt\"] - 1e-9:\n        st[\"idx\"] = (idx + 1) % n60\n        buf[st[\"idx\"]] = p_target\n        st[\"last_t\"] = t\n\n    if p_target < p_raw - b_dis_max:\n        return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": p_target + b_dis_max, \"battery_setpoint_mw\": b_dis_max}\n    if p_target > p_raw + b_chg_max:\n        return {\"gpu_floor_mw\": p_target - b_chg_max, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": -b_chg_max}\n    return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": p_raw - p_target}\n"
+}

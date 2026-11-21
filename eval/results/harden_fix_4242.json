@@ -1,0 +1,317 @@
+{
+  "schema_version": "harden_fix_eval_v1",
+  "run_at_utc": "2026-11-21T19:08:41.578032+00:00",
+  "seen_seed": 20261121,
+  "holdout_seed": 4242,
+  "n": 20,
+  "profiles": [
+    {
+      "profile_id": "lipa",
+      "thread_id": "harden_fix_lipa_20261121T190426Z",
+      "before": {
+        "seed_20261121": {
+          "seed": 20261121,
+          "passed": false,
+          "workloads_passed": 19,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": -15.817773407937938,
+          "worst_constraint_id": "fluctuation_band_25",
+          "mean_energy_overhead_pct": 2.111,
+          "mean_throughput_loss_pct": 7.321,
+          "failing_constraints": [
+            {
+              "workload": "rand_fast_06",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 11.581777340793794,
+              "limit": 10.0,
+              "margin": -1.5817773407937938,
+              "margin_pct": -15.817773407937938,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 11.5818 vs limit 10.0000 MW"
+            }
+          ]
+        },
+        "seed_4242": {
+          "seed": 4242,
+          "passed": false,
+          "workloads_passed": 19,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": -2.498709728748043,
+          "worst_constraint_id": "fluctuation_band_25",
+          "mean_energy_overhead_pct": 1.958,
+          "mean_throughput_loss_pct": 6.568,
+          "failing_constraints": [
+            {
+              "workload": "rand_fast_05",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 10.249870972874804,
+              "limit": 10.0,
+              "margin": -0.2498709728748043,
+              "margin_pct": -2.498709728748043,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 10.2499 vs limit 10.0000 MW"
+            }
+          ]
+        }
+      },
+      "after": {
+        "seed_20261121": {
+          "seed": 20261121,
+          "passed": false,
+          "workloads_passed": 14,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": -57.38493197793474,
+          "worst_constraint_id": "fluctuation_band_25",
+          "mean_energy_overhead_pct": 1.123,
+          "mean_throughput_loss_pct": 0.0,
+          "failing_constraints": [
+            {
+              "workload": "rand_fast_00",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 12.424235697923221,
+              "limit": 10.0,
+              "margin": -2.424235697923221,
+              "margin_pct": -24.24235697923221,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 12.4242 vs limit 10.0000 MW"
+            },
+            {
+              "workload": "rand_fast_02",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 11.849249028797699,
+              "limit": 10.0,
+              "margin": -1.8492490287976988,
+              "margin_pct": -18.492490287976988,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 11.8492 vs limit 10.0000 MW"
+            },
+            {
+              "workload": "rand_fast_03",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 13.140105206066597,
+              "limit": 10.0,
+              "margin": -3.140105206066597,
+              "margin_pct": -31.401052060665968,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 13.1401 vs limit 10.0000 MW"
+            }
+          ]
+        },
+        "seed_4242": {
+          "seed": 4242,
+          "passed": false,
+          "workloads_passed": 13,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": -50.489655242943186,
+          "worst_constraint_id": "fluctuation_band_25",
+          "mean_energy_overhead_pct": 1.205,
+          "mean_throughput_loss_pct": 0.0,
+          "failing_constraints": [
+            {
+              "workload": "rand_fast_00",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 11.469482927616687,
+              "limit": 10.0,
+              "margin": -1.4694829276166868,
+              "margin_pct": -14.694829276166868,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 11.4695 vs limit 10.0000 MW"
+            },
+            {
+              "workload": "rand_fast_01",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 14.18493940658008,
+              "limit": 10.0,
+              "margin": -4.18493940658008,
+              "margin_pct": -41.8493940658008,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 14.1849 vs limit 10.0000 MW"
+            },
+            {
+              "workload": "rand_fast_02",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 12.22963640197315,
+              "limit": 10.0,
+              "margin": -2.229636401973149,
+              "margin_pct": -22.29636401973149,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 12.2296 vs limit 10.0000 MW"
+            }
+          ]
+        }
+      },
+      "break_found": true,
+      "failing_on_seen_before": 1,
+      "hardener_latency_s": 90.016,
+      "hardener_error": "APITimeoutError: Request timed out. This is a client-side timeout. You can increase the timeout by setting the `timeout` argument on your request or in the client http options.",
+      "hardener_reply_status": "no_break_within_budget",
+      "engineer_latency_s": 28.799,
+      "evolve_outcome": "fallback_b3",
+      "evolve_passed": true,
+      "fix_confirmed_by_backend": false,
+      "fixed_code_changed": true,
+      "cx_note": "host_rand20:rand_fast_06"
+    },
+    {
+      "profile_id": "lipa_pseg",
+      "thread_id": "harden_fix_lipa_pseg_20261121T190632Z",
+      "before": {
+        "seed_20261121": {
+          "seed": 20261121,
+          "passed": false,
+          "workloads_passed": 19,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": -6.565454699231843,
+          "worst_constraint_id": "fluctuation_band_12",
+          "mean_energy_overhead_pct": 2.787,
+          "mean_throughput_loss_pct": 9.972,
+          "failing_constraints": [
+            {
+              "workload": "rand_slow_02",
+              "family": "slow",
+              "constraint_id": "fluctuation_band_12",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 10.656545469923184,
+              "limit": 10.0,
+              "margin": -0.6565454699231843,
+              "margin_pct": -6.565454699231843,
+              "canonical_unit": "MW",
+              "page": 12,
+              "snippet": "Low Subsynchronous (0.1 \u2013 5.0 Hz): The P0-pk,avg for the sum of any two adjacent frequency bins shall not exceed 10.0 MW0-pk,avg (60 second rolling window).",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=adjacent_pair_sum near 0.15 Hz (max of 60s rolling avg over FFT windows (agg=adjacent_pair_sum)): 10.6565 vs limit 10.0000 MW"
+            }
+          ]
+        },
+        "seed_4242": {
+          "seed": 4242,
+          "passed": false,
+          "workloads_passed": 18,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": -1.9104361161581096,
+          "worst_constraint_id": "fluctuation_band_12",
+          "mean_energy_overhead_pct": 2.209,
+          "mean_throughput_loss_pct": 8.247,
+          "failing_constraints": [
+            {
+              "workload": "rand_slow_04",
+              "family": "slow",
+              "constraint_id": "fluctuation_band_12",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 10.060847917332694,
+              "limit": 10.0,
+              "margin": -0.060847917332694124,
+              "margin_pct": -0.6084791733269412,
+              "canonical_unit": "MW",
+              "page": 12,
+              "snippet": "Low Subsynchronous (0.1 \u2013 5.0 Hz): The P0-pk,avg for the sum of any two adjacent frequency bins shall not exceed 10.0 MW0-pk,avg (60 second rolling window).",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=adjacent_pair_sum near 0.15 Hz (max of 60s rolling avg over FFT windows (agg=adjacent_pair_sum)): 10.0608 vs limit 10.0000 MW"
+            },
+            {
+              "workload": "rand_slow_06",
+              "family": "slow",
+              "constraint_id": "fluctuation_band_12",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 10.191043611615811,
+              "limit": 10.0,
+              "margin": -0.19104361161581096,
+              "margin_pct": -1.9104361161581096,
+              "canonical_unit": "MW",
+              "page": 12,
+              "snippet": "Low Subsynchronous (0.1 \u2013 5.0 Hz): The P0-pk,avg for the sum of any two adjacent frequency bins shall not exceed 10.0 MW0-pk,avg (60 second rolling window).",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=adjacent_pair_sum near 0.15 Hz (max of 60s rolling avg over FFT windows (agg=adjacent_pair_sum)): 10.1910 vs limit 10.0000 MW"
+            }
+          ]
+        }
+      },
+      "after": {
+        "seed_20261121": {
+          "seed": 20261121,
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": 0.9999999999962428,
+          "worst_constraint_id": "ramp_rate_3",
+          "mean_energy_overhead_pct": 3.49,
+          "mean_throughput_loss_pct": 15.568,
+          "failing_constraints": []
+        },
+        "seed_4242": {
+          "seed": 4242,
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "worst_margin_pct": 0.9999999999962428,
+          "worst_constraint_id": "ramp_rate_3",
+          "mean_energy_overhead_pct": 2.692,
+          "mean_throughput_loss_pct": 13.644,
+          "failing_constraints": []
+        }
+      },
+      "break_found": true,
+      "failing_on_seen_before": 1,
+      "hardener_latency_s": 90.046,
+      "hardener_error": "APITimeoutError: Request timed out. This is a client-side timeout. You can increase the timeout by setting the `timeout` argument on your request or in the client http options.",
+      "hardener_reply_status": "no_break_within_budget",
+      "engineer_latency_s": 37.312,
+      "evolve_outcome": "evolved_compliant",
+      "evolve_passed": true,
+      "fix_confirmed_by_backend": false,
+      "fixed_code_changed": true,
+      "cx_note": "host_rand20:rand_slow_02"
+    }
+  ]
+}

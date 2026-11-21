@@ -1,0 +1,12 @@
+{
+  "schema_version": "b2_failure_analysis_v1",
+  "run": "run2_fair_prompt",
+  "source": "eval/results/b2_budget_20261121_run2_fair_prompt.json",
+  "category_counts": {
+    "passed": 6,
+    "ran_but_broke_rule": 4
+  },
+  "profiles_passed": 6,
+  "profiles_completed_ok": 10,
+  "elapsed_s": 455.997
+}

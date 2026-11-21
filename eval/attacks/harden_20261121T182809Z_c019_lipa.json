@@ -1,0 +1,1459 @@
+{
+  "reply": {
+    "ok": false,
+    "from": "gridsafe-hardener",
+    "to": "gridsafe-engineer",
+    "round": 19,
+    "latency_s": 90.108,
+    "error": "APITimeoutError: Request timed out. This is a client-side timeout. You can increase the timeout by setting the `timeout` argument on your request or in the client http options.",
+    "reply": {
+      "status": "no_break_within_budget",
+      "notes": "hardener timed out; host will verify independently",
+      "counterexamples": []
+    }
+  },
+  "check": {
+    "break_found": true,
+    "verified_breaks": [
+      {
+        "name": "rand20_host",
+        "backend_eval": {
+          "passed": false,
+          "workloads_passed": 19,
+          "workloads_total": 20,
+          "composite_score": 1005002.8546438967,
+          "mean_energy_overhead_pct": 1.70514198137265,
+          "mean_throughput_loss_pct": 5.843397695778075,
+          "mean_battery_wear": 0.06563137514693825,
+          "max_shaft_torque_pu": 0.055467541646549864,
+          "worst_margin_pct": -2.8546438966827736,
+          "worst_constraint_id": "fluctuation_band_25",
+          "failing_constraints": [
+            {
+              "workload": "rand_fast_05",
+              "family": "fast",
+              "constraint_id": "fluctuation_band_25",
+              "constraint_type": "fluctuation_band",
+              "status": "fail",
+              "measured": 10.285464389668277,
+              "limit": 10.0,
+              "margin": -0.28546438966827736,
+              "margin_pct": -2.8546438966827736,
+              "canonical_unit": "MW",
+              "page": 25,
+              "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+              "entity": "LIPA",
+              "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 10.2855 vs limit 10.0000 MW"
+            }
+          ],
+          "per_workload": [
+            {
+              "workload": "rand_fast_00",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 4.382756235599672,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 4.772499401249893,
+              "throughput_loss_pct": 12.965722194595877,
+              "battery_wear_proxy": 0.0064176310289516935,
+              "battery_efc": 0.004446981746237225,
+              "max_shaft_torque_pu": 0.04951252868559971,
+              "energy_balance_error_mwh": 2.220446049250313e-15,
+              "eval_time_s": 0.032446500001242384,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 9.561724376440033,
+                  "limit": 10.0,
+                  "margin": 0.4382756235599672,
+                  "margin_pct": 4.382756235599672,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 9.5617 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.166765877561406,
+                  "limit": 3.5,
+                  "margin": 3.333234122438594,
+                  "margin_pct": 95.23526064110268,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1668 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_01",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 6.468889054213296,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 2.0370790072276987,
+              "throughput_loss_pct": 13.705008078377654,
+              "battery_wear_proxy": 0.005718069715964318,
+              "battery_efc": 0.0040339926538793406,
+              "max_shaft_torque_pu": 0.051228873942865225,
+              "energy_balance_error_mwh": 1.1934897514720433e-14,
+              "eval_time_s": 0.03440204199432628,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 9.35311109457867,
+                  "limit": 10.0,
+                  "margin": 0.6468889054213296,
+                  "margin_pct": 6.468889054213296,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 9.3531 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.17179775243862563,
+                  "limit": 3.5,
+                  "margin": 3.328202247561374,
+                  "margin_pct": 95.09149278746783,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1718 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_02",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 36.88445864804748,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.8869155237440094,
+              "throughput_loss_pct": 10.893310429408825,
+              "battery_wear_proxy": 0.003919848366580523,
+              "battery_efc": 0.0028916139639787192,
+              "max_shaft_torque_pu": 0.034849132333434375,
+              "energy_balance_error_mwh": 8.104628079763643e-15,
+              "eval_time_s": 0.033428041999286506,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 6.311554135195252,
+                  "limit": 10.0,
+                  "margin": 3.6884458648047476,
+                  "margin_pct": 36.88445864804748,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 6.3116 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.11632158011626786,
+                  "limit": 3.5,
+                  "margin": 3.383678419883732,
+                  "margin_pct": 96.67652628239235,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1163 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_03",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 5.494077918779947,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.8371811819406545,
+              "throughput_loss_pct": 9.806077931624674,
+              "battery_wear_proxy": 0.005545629958582957,
+              "battery_efc": 0.003945705384042506,
+              "max_shaft_torque_pu": 0.051579652044946196,
+              "energy_balance_error_mwh": 9.880984919163893e-15,
+              "eval_time_s": 0.048583875002805144,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 9.450592208122005,
+                  "limit": 10.0,
+                  "margin": 0.5494077918779947,
+                  "margin_pct": 5.494077918779947,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 9.4506 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.17292527577872527,
+                  "limit": 3.5,
+                  "margin": 3.3270747242212746,
+                  "margin_pct": 95.05927783489356,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1729 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_04",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 17.23447279674927,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 3.5170480015439245,
+              "throughput_loss_pct": 9.04388995927669,
+              "battery_wear_proxy": 0.00613412698435875,
+              "battery_efc": 0.004286973444489152,
+              "max_shaft_torque_pu": 0.043009656981241554,
+              "energy_balance_error_mwh": 3.552713678800501e-15,
+              "eval_time_s": 0.03919566599506652,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 8.276552720325073,
+                  "limit": 10.0,
+                  "margin": 1.723447279674927,
+                  "margin_pct": 17.23447279674927,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 8.2766 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.13953687120990746,
+                  "limit": 3.5,
+                  "margin": 3.3604631287900926,
+                  "margin_pct": 96.0132322511455,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1395 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_05",
+              "family": "fast",
+              "status": "fail",
+              "passed": false,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 1,
+              "failed_count": 1,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": -2.8546438966827736,
+              "refusal_reason": "1 checkable constraint(s) violated (worst: fluctuation_band_25).",
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [
+                {
+                  "workload": "rand_fast_05",
+                  "family": "fast",
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "fail",
+                  "measured": 10.285464389668277,
+                  "limit": 10.0,
+                  "margin": -0.28546438966827736,
+                  "margin_pct": -2.8546438966827736,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 10.2855 vs limit 10.0000 MW"
+                }
+              ],
+              "energy_overhead_pct": 1.8590708426705274,
+              "throughput_loss_pct": 11.011150709343491,
+              "battery_wear_proxy": 0.005787998811573989,
+              "battery_efc": 0.004082025766474499,
+              "max_shaft_torque_pu": 0.055467541646549864,
+              "energy_balance_error_mwh": 1.0269562977782698e-14,
+              "eval_time_s": 0.040750166997895576,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "fail",
+                  "passed": false,
+                  "measured": 10.285464389668277,
+                  "limit": 10.0,
+                  "margin": -0.28546438966827736,
+                  "margin_pct": -2.8546438966827736,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 10.2855 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.18971235161813202,
+                  "limit": 3.5,
+                  "margin": 3.310287648381868,
+                  "margin_pct": 94.5796470966248,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1897 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_06",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 7.608293047808861,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.9346924294225218,
+              "throughput_loss_pct": 11.561644988225387,
+              "battery_wear_proxy": 0.005558710814567639,
+              "battery_efc": 0.003942122367701329,
+              "max_shaft_torque_pu": 0.051752834852674984,
+              "energy_balance_error_mwh": 1.1268763699945339e-14,
+              "eval_time_s": 0.036694249996799044,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 9.239170695219114,
+                  "limit": 10.0,
+                  "margin": 0.7608293047808861,
+                  "margin_pct": 7.608293047808861,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 9.2392 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.1705675872754908,
+                  "limit": 3.5,
+                  "margin": 3.3294324127245094,
+                  "margin_pct": 95.12664036355741,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1706 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_07",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 16.539092677858882,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 2.598411576181338,
+              "throughput_loss_pct": 11.832879754986275,
+              "battery_wear_proxy": 0.006590413276333647,
+              "battery_efc": 0.004589880933527669,
+              "max_shaft_torque_pu": 0.045615306958239434,
+              "energy_balance_error_mwh": 1.2045919817182948e-14,
+              "eval_time_s": 0.03488366700184997,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 8.346090732214112,
+                  "limit": 10.0,
+                  "margin": 1.6539092677858882,
+                  "margin_pct": 16.539092677858882,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 8.3461 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.1516992382809658,
+                  "limit": 3.5,
+                  "margin": 3.348300761719034,
+                  "margin_pct": 95.66573604911525,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1517 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_08",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 29.716874805849493,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 2.614296815079994,
+              "throughput_loss_pct": 13.43497064321234,
+              "battery_wear_proxy": 0.0059881675342817525,
+              "battery_efc": 0.004174840887314324,
+              "max_shaft_torque_pu": 0.03734965685164022,
+              "energy_balance_error_mwh": 1.0547118733938987e-14,
+              "eval_time_s": 0.03106199999456294,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 7.028312519415051,
+                  "limit": 10.0,
+                  "margin": 2.971687480584949,
+                  "margin_pct": 29.716874805849493,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 7.0283 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.11333213270230659,
+                  "limit": 3.5,
+                  "margin": 3.3866678672976933,
+                  "margin_pct": 96.76193906564838,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1133 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_fast_09",
+              "family": "fast",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 2,
+              "not_evaluable_count": 0,
+              "passed_count": 2,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 6.4158884786808565,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.8991028912404537,
+              "throughput_loss_pct": 10.478360057442009,
+              "battery_wear_proxy": 0.005664757097063144,
+              "battery_efc": 0.004041036052843812,
+              "max_shaft_torque_pu": 0.051340299735460365,
+              "energy_balance_error_mwh": 1.0047518372857667e-14,
+              "eval_time_s": 0.03009629099688027,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 9.358411152131914,
+                  "limit": 10.0,
+                  "margin": 0.6415888478680856,
+                  "margin_pct": 6.4158884786808565,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 9.3584 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.17211592401457826,
+                  "limit": 3.5,
+                  "margin": 3.3278840759854216,
+                  "margin_pct": 95.08240217101205,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Band [5, 55] Hz aggregation=peak_bin near 5.00 Hz (whole-trace FFT aggregation=peak_bin): 0.1721 vs limit 3.5000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_00",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 96.59505395468042,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.3422485161307998,
+              "throughput_loss_pct": 0.30148018969774215,
+              "battery_wear_proxy": 0.18500703201323784,
+              "battery_efc": 0.1560614768647791,
+              "max_shaft_torque_pu": 0.03632622576748347,
+              "energy_balance_error_mwh": 3.552713678800501e-15,
+              "eval_time_s": 0.011322332997224294,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.3404946045319583,
+                  "limit": 10.0,
+                  "margin": 9.659505395468042,
+                  "margin_pct": 96.59505395468042,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 0.3405 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_01",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 98.03548667498394,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 0.6718093098613492,
+              "throughput_loss_pct": 0.23307351487500452,
+              "battery_wear_proxy": 0.08901167855126305,
+              "battery_efc": 0.0764707518271718,
+              "max_shaft_torque_pu": 0.03297233892515417,
+              "energy_balance_error_mwh": 3.552713678800501e-15,
+              "eval_time_s": 0.010819250004715286,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.19645133250160682,
+                  "limit": 10.0,
+                  "margin": 9.803548667498394,
+                  "margin_pct": 98.03548667498394,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.11 Hz (whole-trace FFT aggregation=peak_bin): 0.1965 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_02",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 96.57141067990173,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 0.6104040683160881,
+              "throughput_loss_pct": 0.11624242817101905,
+              "battery_wear_proxy": 0.1055199482491795,
+              "battery_efc": 0.09506482158904414,
+              "max_shaft_torque_pu": 0.03992528057714376,
+              "energy_balance_error_mwh": 0.0,
+              "eval_time_s": 0.011104500001238193,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.3428589320098273,
+                  "limit": 10.0,
+                  "margin": 9.657141067990173,
+                  "margin_pct": 96.57141067990173,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.15 Hz (whole-trace FFT aggregation=peak_bin): 0.3429 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_03",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 95.62346728526605,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 0.8569415623427499,
+              "throughput_loss_pct": 0.23217624535270517,
+              "battery_wear_proxy": 0.09243874615328715,
+              "battery_efc": 0.08061382887870439,
+              "max_shaft_torque_pu": 0.031037348386245976,
+              "energy_balance_error_mwh": 0.0,
+              "eval_time_s": 0.011329916997055989,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.4376532714733953,
+                  "limit": 10.0,
+                  "margin": 9.562346728526604,
+                  "margin_pct": 95.62346728526605,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.14 Hz (whole-trace FFT aggregation=peak_bin): 0.4377 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_04",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 98.50714833363628,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 0.8904167094577368,
+              "throughput_loss_pct": 0.03031511846819415,
+              "battery_wear_proxy": 0.15740559686389416,
+              "battery_efc": 0.13774752419771158,
+              "max_shaft_torque_pu": 0.03383759808958824,
+              "energy_balance_error_mwh": 0.0,
+              "eval_time_s": 0.01105124999594409,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.1492851666363729,
+                  "limit": 10.0,
+                  "margin": 9.850714833363627,
+                  "margin_pct": 98.50714833363628,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 0.1493 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_05",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 98.53979399224355,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 0.6173733644164358,
+              "throughput_loss_pct": 0.09856661287192227,
+              "battery_wear_proxy": 0.10832691707846284,
+              "battery_efc": 0.0964853867068219,
+              "max_shaft_torque_pu": 0.037261478636208614,
+              "energy_balance_error_mwh": 7.105427357601002e-15,
+              "eval_time_s": 0.011882708997291047,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.14602060077564516,
+                  "limit": 10.0,
+                  "margin": 9.853979399224356,
+                  "margin_pct": 98.53979399224355,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.11 Hz (whole-trace FFT aggregation=peak_bin): 0.1460 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_06",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 97.55218974509312,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.0207076496060346,
+              "throughput_loss_pct": 0.3211214022021897,
+              "battery_wear_proxy": 0.12546858697608568,
+              "battery_efc": 0.10425584418725949,
+              "max_shaft_torque_pu": 0.039015856707412436,
+              "energy_balance_error_mwh": 7.105427357601002e-15,
+              "eval_time_s": 0.010887415999604855,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.24478102549068773,
+                  "limit": 10.0,
+                  "margin": 9.755218974509312,
+                  "margin_pct": 97.55218974509312,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.12 Hz (whole-trace FFT aggregation=peak_bin): 0.2448 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_07",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 98.06965749973523,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.381196544648771,
+              "throughput_loss_pct": 0.6363128564500163,
+              "battery_wear_proxy": 0.12730757136474266,
+              "battery_efc": 0.1002318778975289,
+              "max_shaft_torque_pu": 0.04360257640126712,
+              "energy_balance_error_mwh": 0.0,
+              "eval_time_s": 0.011760749999666587,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.19303425002647717,
+                  "limit": 10.0,
+                  "margin": 9.806965749973523,
+                  "margin_pct": 98.06965749973523,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.10 Hz (whole-trace FFT aggregation=peak_bin): 0.1930 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_08",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 94.69891828975419,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 1.2189677322515093,
+              "throughput_loss_pct": 0.07615358199367392,
+              "battery_wear_proxy": 0.18174122024805348,
+              "battery_efc": 0.15414997019812274,
+              "max_shaft_torque_pu": 0.024835576901523264,
+              "energy_balance_error_mwh": 3.552713678800501e-15,
+              "eval_time_s": 0.01184987500164425,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.5301081710245822,
+                  "limit": 10.0,
+                  "margin": 9.469891828975419,
+                  "margin_pct": 94.69891828975419,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.19 Hz (whole-trace FFT aggregation=peak_bin): 0.5301 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            },
+            {
+              "workload": "rand_slow_09",
+              "family": "slow",
+              "status": "pass",
+              "passed": true,
+              "checkable_count": 2,
+              "evaluable_count": 1,
+              "not_evaluable_count": 1,
+              "passed_count": 1,
+              "failed_count": 0,
+              "needs_review_count": 0,
+              "worst_constraint_id": "fluctuation_band_25",
+              "worst_margin_pct": 97.46773030606626,
+              "refusal_reason": null,
+              "assumptions": [
+                "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+              ],
+              "failing_constraints": [],
+              "energy_overhead_pct": 0.5364765001205146,
+              "throughput_loss_pct": 0.08949721898581477,
+              "battery_wear_proxy": 0.08307485185230001,
+              "battery_efc": 0.07210612956103954,
+              "max_shaft_torque_pu": 0.035337896024034074,
+              "energy_balance_error_mwh": 0.0,
+              "eval_time_s": 0.012078082996595185,
+              "results": [
+                {
+                  "constraint_id": "fluctuation_band_25",
+                  "constraint_type": "fluctuation_band",
+                  "status": "pass",
+                  "passed": true,
+                  "measured": 0.2532269693933739,
+                  "limit": 10.0,
+                  "margin": 9.746773030606626,
+                  "margin_pct": 97.46773030606626,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.941,
+                  "entity": "LIPA",
+                  "details": "Band [0.1, 5] Hz aggregation=peak_bin near 0.12 Hz (whole-trace FFT aggregation=peak_bin): 0.2532 vs limit 10.0000 MW",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+                    "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+                  ]
+                },
+                {
+                  "constraint_id": "fluctuation_band_26",
+                  "constraint_type": "fluctuation_band",
+                  "status": "not_evaluable",
+                  "passed": null,
+                  "measured": null,
+                  "limit": 3.5,
+                  "margin": null,
+                  "margin_pct": null,
+                  "canonical_unit": "MW",
+                  "page": 25,
+                  "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+                  "confidence": 0.9448,
+                  "entity": "LIPA",
+                  "details": "Not evaluable on this trace: band [5, 55] Hz is above trace Nyquist frequency (1 Hz at dt=0.5s).",
+                  "assumptions": [
+                    "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin)."
+                  ]
+                }
+              ]
+            }
+          ],
+          "static_violations": [],
+          "timed_out": false,
+          "error": null,
+          "elapsed_s": 0.7251010420004604,
+          "workloads_evaluable": 20,
+          "workloads_not_evaluable": 0,
+          "unevaluated_constraints": [],
+          "assumptions": [
+            "Frequency-band aggregation not stated; using peak_bin (largest single FFT bin).",
+            "Partial band [0.1, 1] Hz evaluated on dt=0.5s trace (upper bound 5 Hz exceeds Nyquist 1 Hz)."
+          ],
+          "family_summary": {
+            "fast": {
+              "status": "fail",
+              "passed": false,
+              "workloads_total": 10,
+              "workloads_evaluable": 10,
+              "workloads_passed": 9,
+              "workloads_not_evaluable": 0,
+              "mean_energy_overhead_pct": 2.496,
+              "mean_throughput_loss_pct": 11.473,
+              "mean_battery_wear": 0.005733,
+              "max_shaft_torque_pu": 0.05547,
+              "worst_margin_pct": -2.855,
+              "worst_constraint_id": "fluctuation_band_25",
+              "eval_time_mean_ms": 36.15,
+              "eval_time_max_ms": 48.58
+            },
+            "slow": {
+              "status": "pass",
+              "passed": true,
+              "workloads_total": 10,
+              "workloads_evaluable": 10,
+              "workloads_passed": 10,
+              "workloads_not_evaluable": 0,
+              "mean_energy_overhead_pct": 0.915,
+              "mean_throughput_loss_pct": 0.213,
+              "mean_battery_wear": 0.12553,
+              "max_shaft_torque_pu": 0.0436,
+              "worst_margin_pct": 94.699,
+              "worst_constraint_id": "fluctuation_band_25",
+              "eval_time_mean_ms": 11.41,
+              "eval_time_max_ms": 12.08
+            }
+          }
+        }
+      }
+    ],
+    "source": "host_random_suite"
+  },
+  "controller_code": "import math\n\nSLEW_MW_S = 15.0\nSOC_KP = 0.10\nSOC_TARGET = 0.55\n\n\ndef control(obs: dict) -> dict[str, float]:\n    p_raw = float(obs[\"p_raw_mw\"])\n    rated = float(obs[\"rated_mw\"])\n    dt = float(obs[\"dt\"])\n    soc = float(obs[\"soc\"])\n    b_max = float(obs[\"battery_max_power_mw\"])\n    cap = float(obs[\"battery_capacity_mwh\"])\n    e = float(obs[\"battery_energy_mwh\"])\n    idle = float(obs.get(\"idle_mw\", obs[\"p_prev_grid_mw\"]))\n    st = obs[\"state\"]\n\n    if \"y1\" not in st:\n        st[\"y1\"] = idle\n        st[\"y2\"] = idle\n        st[\"pg\"] = idle\n\n    tau_s = 6.0 if dt < 0.05 else 3.0\n    desired_in = p_raw + SOC_KP * (SOC_TARGET - soc) * b_max\n    desired_in = min(rated, max(0.0, desired_in))\n\n    alpha = dt / (tau_s + dt)\n    st[\"y1\"] = (1.0 - alpha) * st[\"y1\"] + alpha * desired_in\n    st[\"y2\"] = (1.0 - alpha) * st[\"y2\"] + alpha * st[\"y1\"]\n\n    max_d = SLEW_MW_S * dt\n    p_target = st[\"pg\"] + max(-max_d, min(max_d, st[\"y2\"] - st[\"pg\"]))\n    p_target = min(rated, max(0.0, p_target))\n    st[\"pg\"] = p_target\n\n    dt_h = dt / 3600.0\n    eta = math.sqrt(0.90)\n    b_dis_max = min(b_max, max(0.0, (e - 0.1 * cap) * eta / dt_h))\n    b_chg_max = min(b_max, max(0.0, (0.9 * cap - e) / (eta * dt_h)))\n\n    if p_target < p_raw - b_dis_max:\n        return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": p_target + b_dis_max, \"battery_setpoint_mw\": b_dis_max}\n    if p_target > p_raw + b_chg_max:\n        return {\"gpu_floor_mw\": p_target - b_chg_max, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": -b_chg_max}\n    return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": p_raw - p_target}\n"
+}

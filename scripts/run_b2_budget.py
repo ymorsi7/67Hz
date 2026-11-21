@@ -62,6 +62,7 @@ def main() -> int:
                 workloads,
                 pdf_path=pdf,
                 timeout_s=per_timeout,
+                utility_name=prof.utility,
             )
             entry = {
                 "profile_id": prof.profile_id,

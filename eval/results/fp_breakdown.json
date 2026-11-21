@@ -1,0 +1,103 @@
+{
+  "schema_version": "fp_breakdown_v1",
+  "n": 9,
+  "counts_by_reason": {
+    "another_utility_quoted_rule": 4,
+    "duplicate": 4,
+    "wrong_value_or_type": 1
+  },
+  "invented_or_wrong": 1,
+  "quotes_or_duplicates": 8,
+  "false_positives": [
+    {
+      "doc_id": "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296",
+      "page": 6,
+      "type": "ramp_rate",
+      "value": 20.0,
+      "unit": "MW/min",
+      "entity": "",
+      "snippet": "20 MW/min",
+      "why_not_in_gold": "another_utility_quoted_rule"
+    },
+    {
+      "doc_id": "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296",
+      "page": 6,
+      "type": "ramp_rate",
+      "value": 30.0,
+      "unit": "MW/min",
+      "entity": "",
+      "snippet": "30 MW/min (change in load >50 MW limited to 0.5 MW/sec)",
+      "why_not_in_gold": "duplicate"
+    },
+    {
+      "doc_id": "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296",
+      "page": 6,
+      "type": "ramp_rate",
+      "value": 0.5,
+      "unit": "MW/s",
+      "entity": "",
+      "snippet": "30 MW/min (change in load >50 MW limited to 0.5 MW/sec)",
+      "why_not_in_gold": "another_utility_quoted_rule"
+    },
+    {
+      "doc_id": "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296",
+      "page": 6,
+      "type": "ramp_rate",
+      "value": 10.0,
+      "unit": "MW/min",
+      "entity": "",
+      "snippet": "10 MW/min",
+      "why_not_in_gold": "another_utility_quoted_rule"
+    },
+    {
+      "doc_id": "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296",
+      "page": 6,
+      "type": "ramp_rate",
+      "value": 20.0,
+      "unit": "MW/min",
+      "entity": "",
+      "snippet": "20 MW/min",
+      "why_not_in_gold": "another_utility_quoted_rule"
+    },
+    {
+      "doc_id": "20261008 LLWG Item 06b Ramp Requirement (LLWG-2026-3)786296",
+      "page": 8,
+      "type": "ramp_rate",
+      "value": 30.0,
+      "unit": "MW/min",
+      "entity": "",
+      "snippet": "Summary: Restricting Computation Load up/down movement at 30MW/min bounds a single facility\u2019s 5-minute equivalent (150MW), preventing a single CL from using all of MISO\u2019s regulation reserve and drivin",
+      "why_not_in_gold": "duplicate"
+    },
+    {
+      "doc_id": "Large-Load-Technical-Requirements-Straw-Proposal-Jun-15-2026",
+      "page": 25,
+      "type": "fluctuation_band",
+      "value": 10.0,
+      "unit": "MW",
+      "entity": "",
+      "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+      "why_not_in_gold": "duplicate"
+    },
+    {
+      "doc_id": "Large-Load-Technical-Requirements-Straw-Proposal-Jun-15-2026",
+      "page": 25,
+      "type": "fluctuation_band",
+      "value": 3.5,
+      "unit": "MW",
+      "entity": "",
+      "snippet": "LIPA: Requires frequency-domain content in the 0.1\u20135 Hz range to remain below 10 MW and content in the 5\u201355 Hz range to remain below 3.5 MW.",
+      "why_not_in_gold": "duplicate"
+    },
+    {
+      "doc_id": "LargeComputationalLoads-20260501-Technical-Requirements",
+      "page": 7,
+      "type": "max_step",
+      "value": 600.0,
+      "unit": "MW",
+      "entity": "",
+      "snippet": "No internal single point failure within the project results in a load loss above 600 MW or a lower value identified by system assessments.",
+      "why_not_in_gold": "wrong_value_or_type"
+    }
+  ]
+}

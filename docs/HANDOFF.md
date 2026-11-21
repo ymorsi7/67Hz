@@ -23,9 +23,9 @@ Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (public repo 
 
 ### Headline unflattering facts (quote from RESULTS.md)
 - GridSafe presets **33/33** — **same as no-AI B3 33/33**.
-- Random suite: GridSafe **9/11** all-pass; B0 **11/11**; B3 **9/11** (`lipa`/`lipa_pseg` GridSafe 19/20).
-- B2 stock agent: **0/11** host-scored passes in the 8‑minute budget.
-- Hardener: many **90 s client timeouts**; use pause/resume.
+- B2 run1 **0/11** was mostly harness (thin prompt ≠ B0); fair run2 **6/10** (all remaining fails = rule breaks; `lipa` skipped for budget).
+- Hardener holdout SEED=4242: `lipa` **19→13/20** (hurt); `lipa_pseg` **18→20/20** (helped).
+- Hardening: **19** rounds, **20** timeouts, **2** breaks, **2** fixes — most turns timed out.
 
 ## 3. Repo Map (Phase 7 wrap-up additions)
 - `Makefile` — `eval-live`, `report`, `demo`, `b2-budget`, `harden-pause`, `harden-resume`

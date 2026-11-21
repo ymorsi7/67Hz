@@ -4,19 +4,17 @@ Every value comes from a saved run file. Command shown is how to regenerate or r
 
 | # | Number | Meaning | File | Command |
 | ---: | --- | --- | --- | --- |
-| 1 | **42.32 s** | `make eval-final` wall-clock (`SEED=20261121`) | `eval/results/eval_final_timing.json` (log: `eval/results/eval_final_run.log`) | `make eval-final SEED=20261121` |
-| 2 | **33/33** (95% WI **[89.6%, 100%]** ) | GridSafe preset seed-run pass rate across 11 profiles × 3 seeds | `eval/results/final_20261121.json` → `method_summary.gridsafe` | `make eval-final SEED=20261121` then `make report` |
-| 3 | **33/33** (same WI) | B3 (no-AI matched-budget search) preset pass rate — **matches GridSafe on presets** | `eval/results/final_20261121.json` → `method_summary.b3` | same |
-| 4 | **9/11** random-suite all-pass | GridSafe profiles that pass all 20 unseen workloads (fails: `lipa` 19/20, `lipa_pseg` 19/20) | `eval/results/final_20261121.json` → `method_summary.gridsafe.random_suite_*` | `make eval-final SEED=20261121` |
-| 5 | **11/11** random-suite all-pass | B0 (single Neon shot) — stronger than GridSafe on this particular random seed | `eval/results/final_20261121.json` → `method_summary.b0` | same |
-| 6 | **4.05% OH / 11.6% TP** | GridSafe mean energy overhead / throughput loss on passing preset runs | `eval/results/final_20261121.json` → `method_summary.gridsafe.mean_*` | same |
-| 7 | **4.09% OH / 15.8% TP** | B3 mean OH / TP on passing presets — similar OH, **worse** TP than GridSafe | `eval/results/final_20261121.json` → `method_summary.b3` | same |
-| 8 | **P=0.679 / R=1.000 / H=0.321 / A=0.034** | Extraction vs 6 human gold files (9 false positives) | `eval/results/final_20261121.json` → `extraction` | `make eval-final SEED=20261121` (uses `eval/cache/extractions` + `eval/gold`) |
-| 9 | **Severity 4 → abstain** (`page_readable_p=0.1314`) | Verifier abstains on unreadable page instead of guessing | `eval/cache/dev_calibration.json` → `degradation_sweep[severity=4]` | `python scripts/calibrate_dev_verifier.py` (cached) |
-| 10 | **0/11 B2 passes** in **296.6 s** (8‑min budget) | Stock Antigravity, no skills/hooks/checker — all 11 profiles host-scored **FAIL** | `eval/results/b2_budget_20261121.json` | `make b2-budget` / `python scripts/run_b2_budget.py --budget-s 480` |
-| 11 | **2 breaks / 2 fixes**; **14** hardener timeout files | Hardening tally + LIPA break-and-fix; repeated 90 s client timeouts | `eval/attacks/hardening_tally.jsonl`, `eval/results/final_20261121.json` → `hardening` | `make harden` (pause/resume: `make harden-pause` / `make harden-resume`) |
-| 12 | **0.0143%** max IEEE FBM mode error; eval **~20 ms** mean | Shaft modes vs published Hz; one evaluation ≪ 0.5 s | `eval/results/final_20261121.json` → `phase1` | `make eval-final` / `make eval` |
+| 1 | **42.32 s** | `make eval-final` wall-clock | `eval/results/eval_final_timing.json` | `make eval-final SEED=20261121` |
+| 2 | **33/33** (WI [89.6%, 100.0%]) | GridSafe preset pass rate | `eval/results/final_20261121.json` | `make eval-final` / `make report` |
+| 3 | **33/33** | B3 preset pass — matches GridSafe | same → `method_summary.b3` | same |
+| 4 | **9/11** | GridSafe random-suite all-pass | same | same |
+| 5 | **11/11** | B0 random-suite all-pass | same | same |
+| 6 | **4.051% OH / 11.59% TP** | GridSafe mean cost on passing presets | same | same |
+| 7 | **P=0.6785714285714286 / R=1.0** | Extraction vs 6 gold | same + `eval/results/fp_breakdown.json` | `python scripts/classify_fps.py` |
+| 8 | **1 invented/wrong · 8 quotes/dupes** | FP split | `eval/results/fp_breakdown.json` | same |
+| 9 | **B2 run1 0/11** (mostly harness) | Thin-prompt B2 | `eval/results/b2_budget_20261121_run1_harness.json` | archived run |
+| 10 | **B2 run2 6/10** in 455.997 s | Fair-prompt B2 | `eval/results/b2_budget_20261121_run2_fair_prompt.json` | `make b2-budget` |
+| 11 | **2 breaks / 2 fixes · 20 timeouts / 19 rounds** | Hardening tally | `eval/attacks/hardening_tally.jsonl` | `make harden` |
+| 12 | **SEED=4242 before→after** (see RESULTS) | Hardener holdout | `eval/results/harden_fix_4242.json` | `python scripts/run_harden_fix_eval.py` |
 
-## Bonus live-judge command
-
-`make eval-live SEED=<n>` re-scores cached controllers on 20 fresh workloads for that seed and prints a pass table (**41.8 s** for `SEED=20261121` → `eval/results/eval_live_20261121.json`).
+See also `RESULTS.md` § “Before and after the hardener agents” and § “B2 stock Antigravity”.
