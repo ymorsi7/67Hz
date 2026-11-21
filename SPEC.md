@@ -35,6 +35,7 @@ Scaffold:
 - Frontend: Vite + React + TypeScript, shadcn/ui on Tailwind, Motion for transitions, lucide-react icons, Geist Sans and Geist Mono. Built assets served by FastAPI.
 - Makefile: test, eval, eval-final, run, replay, demo-check.
 - If the React scaffold is not running by 11:00, fall back to one index.html with vanilla JS and continue.
+- Applied Step 0 decisions: (1) two saved agents (`gridsafe-engineer` on `gemini-4-hydrogen`, `gridsafe-hardener` on `gemini-4-carbon`); (2) Neon Reader and `gemini-decision-1` Verifier run on backend and are exposed as custom functions `read_rulebook` / `verify_constraint` (camera photos may also pass inline); (3) repo mounted at `/workspace/repo`; (4) sandbox code (`workload/`, `sim/`, `rules/`, `controllers/`, `evolve/`) is pure Python + `numpy` only (no `scipy`; PyMuPDF backend-only; `pytest` installed once in forked base env); (5) hooks are a second layer only—backend always re-runs checker and tests before showing compliance; (6) Vite/TS7/shadcn tooling adjustments accepted.
 
 ## PHASE 1 (11:00 to 11:45): physics and checker, no AI
 - workload/synth.py: training load traces from parameters (period, duty cycle, depth, jitter, checkpoints, job start and stop), scaled to a cluster size.
@@ -62,14 +63,15 @@ Scaffold:
 - Tests: a known-bad controller fails the gate; banned code is rejected.
 
 ## PHASE 4 (13:15 to 14:05): managed agent backbone
-- Saved agent "gridsafe-engineer": base antigravity-preview-09-2026, model gemini-4-hydrogen, remote base environment sourced from this GitHub repo.
+- Two saved agents: `gridsafe-engineer` (base `antigravity-preview-09-2026`, model `gemini-4-hydrogen`) and `gridsafe-hardener` (base `antigravity-preview-09-2026`, model `gemini-4-carbon`), both using a remote base environment with this GitHub repo mounted at `/workspace/repo` and `pytest` pre-installed once into the forked base environment.
+- Sandbox package constraint: everything the sandbox runs (`workload/`, `sim/`, `rules/`, `controllers/`, `evolve/`) is pure Python plus `numpy` only (no `scipy`). PyMuPDF stays backend-only.
 - .agents/AGENTS.md: plan checklist (read, verify, evolve, attack, certify); the checker is ground truth; refuse instead of guessing.
 - Skills in .agents/skills/: read-rulebook, evolve-controller, red-team, certify, each with exact sandbox commands.
-- Custom functions on our backend: verify_constraint, report_progress, request_human_review.
-- Hooks block any controller that fails the checker or tests. If hooks cannot do this, enforce it in the certify skill.
+- Document/vision boundary: the agent never reads PDFs itself. Neon (Reader) and `gemini-decision-1` (Verifier) run on our backend and are exposed to the agent as custom functions `read_rulebook` and `verify_constraint` (alongside `report_progress` and `request_human_review`). Camera photos may also go to the agent as inline images.
+- Hooks are a second layer only (blocking controllers that fail the checker/tests inside the sandbox). The real gate: our backend re-runs the deterministic checker and tests on any controller the agent returns, and nothing is shown as compliant until that passes. Never trust the agent's own claim.
 - Token budget per job. Jobs run in the background and stream steps.
 - Job run: one forked run per rulebook, output controller, certificate, checked-off plan.
-- Hardening run: start now and leave running until freeze, on gemini-4-carbon if the docs allow a model per agent. It attacks, logs breaks to eval/attacks/, fixes, reruns eval. Keep a timestamped tally.
+- Hardening run: start now and leave running until freeze on `gridsafe-hardener` (`gemini-4-carbon`). It attacks, logs breaks to eval/attacks/, fixes, reruns eval. Keep a timestamped tally.
 - Live path: time one job run. Under 2 minutes, the judge's input goes to the agent. Slower, the local loop answers in 75 seconds while the agent runs the same job in the background and the UI shows whether they agree.
 - Baseline B2: stock Antigravity agent, same document, no skills, hooks, functions, or checker.
 

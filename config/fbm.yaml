@@ -1,0 +1,13 @@
+# IEEE First Benchmark Model for subsynchronous resonance
+# Source: IEEE SSR Task Force, "First benchmark model for computer simulation
+# of subsynchronous resonance," IEEE Trans. Power Apparatus and Systems,
+# vol. PAS-96, no. 5, pp. 1565-1572, 1977.
+base_mva: 892.4
+base_frequency_hz: 60.0
+# Order: HP, IP, LPA, LPB, GEN, EXC
+masses: [HP, IP, LPA, LPB, GEN, EXC]
+inertia_constant_H_seconds: [0.092897, 0.155589, 0.858670, 0.884215, 0.868495, 0.0342165]
+# Shaft sections: HP-IP, IP-LPA, LPA-LPB, LPB-GEN, GEN-EXC (pu torque per electrical radian)
+shaft_stiffness_K_pu_per_rad: [19.303, 34.929, 52.038, 70.858, 2.822]
+# Mass matrix M = diag(2H / w0), w0 = 2*pi*60. Modes: f = sqrt(eig(M^-1 K)) / (2*pi)
+published_torsional_modes_hz: [15.71, 20.21, 25.55, 32.28, 47.46]
