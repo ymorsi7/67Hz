@@ -103,7 +103,7 @@ def _sse_response(gen: AsyncIterator[str]) -> StreamingResponse:
 
 
 def _git_meta() -> dict[str, Any]:
-    """Footer meta. Oldest commit time — never use `git log --reverse -n 1` (limits before reverse)."""
+    """Footer meta. Oldest commit time - never use `git log --reverse -n 1` (limits before reverse)."""
     try:
         count = subprocess.check_output(
             ["git", "rev-list", "--count", "HEAD"],
@@ -897,9 +897,144 @@ async def select_pages(session_id: str, body: SelectPagesBody) -> dict[str, Any]
     return {"session_id": session_id, "selected_pages": pages}
 
 
+def _cache_doc_stem(source_name: str) -> str:
+    stem = Path(source_name or "").stem
+    return stem or source_name or ""
+
+
+def _lookup_cached_extraction(source_name: str, pages: list[int]) -> dict[str, Any] | None:
+    """Return cached constraints for these pages from eval/cache/extractions, or None."""
+    cache_dir = REPO_ROOT / "eval" / "cache" / "extractions"
+    if not cache_dir.exists():
+        return None
+    stem = _cache_doc_stem(source_name)
+    if not stem:
+        return None
+    candidates = [
+        cache_dir / f"{stem}.json",
+        *sorted(cache_dir.glob(f"*{stem}*.json")),
+    ]
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen or not path.exists():
+            continue
+        seen.add(path)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        all_c = data.get("constraints") if isinstance(data, dict) else None
+        if not isinstance(all_c, list):
+            continue
+        page_set = set(int(p) for p in pages)
+        matched = [c for c in all_c if isinstance(c, dict) and int(c.get("page") or 0) in page_set]
+        if not matched:
+            continue
+        return {
+            "path": str(path.relative_to(REPO_ROOT)),
+            "doc_id": data.get("doc_id") or stem,
+            "source_name": data.get("source_name") or source_name,
+            "run_at_utc": data.get("run_at_utc"),
+            "constraints": matched,
+            "pages": sorted(page_set),
+            "label": "Recorded today",
+        }
+    return None
+
+
+@ui_router.get("/session/{session_id}/cached-read")
+async def cached_read_availability(session_id: str, pages: str = "") -> dict[str, Any]:
+    """Check whether a recorded extraction exists for this session's document + pages."""
+    sess = _get_session(session_id)
+    page_list = [int(p) for p in pages.split(",") if p.strip().isdigit()] or list(sess.selected_pages)
+    hit = _lookup_cached_extraction(sess.source_name, page_list)
+    return {
+        "available": hit is not None,
+        "pages": page_list,
+        "source_name": sess.source_name,
+        "cache": (
+            {
+                "path": hit["path"],
+                "run_at_utc": hit.get("run_at_utc"),
+                "n_constraints": len(hit["constraints"]),
+                "label": "Recorded today",
+            }
+            if hit
+            else None
+        ),
+    }
+
+
+class UseCachedReadBody(BaseModel):
+    pages: list[int] = Field(default_factory=list)
+    append: bool = False
+
+
+@ui_router.post("/session/{session_id}/use-cached-read")
+async def use_cached_read(session_id: str, body: UseCachedReadBody | None = None) -> dict[str, Any]:
+    """Load a recorded extraction for the selected pages. Never labeled as live."""
+    from rules.schema import Constraint
+
+    sess = _get_session(session_id)
+    opts = body or UseCachedReadBody()
+    pages = sorted({int(p) for p in (opts.pages or sess.selected_pages) if int(p) >= 1})
+    if not pages:
+        raise HTTPException(status_code=400, detail="No pages selected")
+    hit = _lookup_cached_extraction(sess.source_name, pages)
+    if hit is None:
+        raise HTTPException(status_code=404, detail="No recorded reading for this document and page")
+
+    out_constraints: list[dict[str, Any]] = []
+    for i, raw in enumerate(hit["constraints"]):
+        c = Constraint.from_dict(raw)
+        if not c.id:
+            c.id = f"{c.constraint_type}_{i}"
+        d = c.to_dict()
+        d["recorded_today"] = True
+        d["from_cache"] = True
+        d["live"] = False
+        d["source_label"] = f"Recorded today · page {c.page}"
+        d["ui_status"] = "Recorded today"
+        d["confirm_badge"] = "Recorded today"
+        # Treat recorded checkable rules as buildable for the demo path
+        if c.checkable:
+            d["verified"] = True
+            d["needs_human_review"] = False
+            d["human_confirmed"] = False
+        out_constraints.append(d)
+
+    if opts.append and sess.constraints:
+        by_id = {str(c.get("id")): c for c in sess.constraints if c.get("id")}
+        for d in out_constraints:
+            by_id[str(d.get("id"))] = d
+        sess.constraints = list(by_id.values())
+    else:
+        sess.constraints = out_constraints
+    sess.controller_code = None
+    sess.evolve_result = None
+    sess.traces = None
+    sess.certificate = None
+    sess.reader_model = "recorded-cache"
+    return {
+        "session_id": session_id,
+        "label": "Recorded today",
+        "live": False,
+        "from_cache": True,
+        "path": hit["path"],
+        "pages": pages,
+        "constraints": sess.constraints,
+        "n_rules": len(sess.constraints),
+        "message": "Loaded the reading of this page recorded earlier today",
+    }
+
+
 @ui_router.post("/session/{session_id}/read-verify")
 async def read_verify_stream(session_id: str, body: SelectPagesBody | None = None) -> StreamingResponse:
-    """Run Reader then Verifier on selected pages; stream constraints with status over SSE."""
+    """Run Reader then Verifier on selected pages; stream constraints with status over SSE.
+
+    Live UI path uses Reader fast mode (thinking=low, medium resolution, checkable-only).
+    Pages are read in parallel. Verifier is unchanged.
+    """
     sess = _get_session(session_id)
     if body and body.pages:
         pages = sorted({int(p) for p in body.pages if 1 <= int(p) <= max(sess.page_count, 1)})
@@ -909,7 +1044,7 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
         raise HTTPException(status_code=400, detail="No pages selected")
 
     async def gen() -> AsyncIterator[str]:
-        from reader.extract import extract_from_image_bytes
+        from reader.extract import extract_pages_parallel
         from reader.pdf_utils import render_pdf_page_png
         from reader.verify import verify_constraints
         from rules.schema import Constraint
@@ -920,9 +1055,10 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
             "status",
             {
                 "phase": "read",
-                "message": f"{reader_label} is preparing to read {len(pages)} page(s)",
+                "message": f"{reader_label} is reading {len(pages)} page(s) (fast Reader)",
                 "pages": pages,
                 "model": reader_label,
+                "fast": True,
             },
         )
         await asyncio.sleep(0)
@@ -931,21 +1067,13 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
         page_images: dict[int, bytes] = {}
         camera_pages: set[int] = set()
         reader_model = ""
+        page_jobs: list[tuple[int, bytes, str]] = []
 
         try:
+            # Render / collect images first (fast), then extract in parallel
             for pg in pages:
-                yield _sse(
-                    "status",
-                    {
-                        "phase": "read",
-                        "message": f"{reader_label} is reading page {pg}",
-                        "page": pg,
-                        "model": reader_label,
-                    },
-                )
                 yield _sse("page_read_start", {"page": pg})
                 await asyncio.sleep(0)
-                # Prefer stored images (camera / appended photo); else render from PDF
                 stored = sess.page_images.get(pg)
                 from_camera = stored is not None or sess.source_kind == "camera"
                 mime = "image/jpeg" if from_camera else "image/png"
@@ -956,7 +1084,8 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
                     from_camera = True
                     mime = "image/jpeg"
                 elif sess.pdf_bytes is not None:
-                    img = await asyncio.to_thread(render_pdf_page_png, sess.pdf_bytes, pg, 150)
+                    # Low DPI for live demo speed (thumbnails still use their own dpi).
+                    img = await asyncio.to_thread(render_pdf_page_png, sess.pdf_bytes, pg, 72)
                     mime = "image/png"
                     from_camera = False
                 else:
@@ -965,40 +1094,77 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
                 page_images[pg] = img
                 if from_camera:
                     camera_pages.add(pg)
+                page_jobs.append((pg, img, mime))
 
-                out = await asyncio.to_thread(
-                    extract_from_image_bytes,
-                    img,
-                    mime,
+            read_t0 = time.perf_counter()
+            # Live path: fast Reader only. Never offer or substitute a cached/recorded reading.
+            extract_task = asyncio.create_task(
+                asyncio.to_thread(
+                    extract_pages_parallel,
+                    page_jobs,
                     source_name=sess.source_name,
-                    page_number=pg,
                     rated_mw=sess.rated_mw,
+                    fast=True,
                 )
-                reader_model = out.model
+            )
+            while True:
+                done, _ = await asyncio.wait({extract_task}, timeout=1.0)
+                elapsed = time.perf_counter() - read_t0
+                yield _sse(
+                    "status",
+                    {
+                        "phase": "read",
+                        "message": f"{reader_label} is reading page{'s' if len(pages) != 1 else ''} "
+                        + (", ".join(str(p) for p in pages)),
+                        "pages": pages,
+                        "model": reader_label,
+                        "elapsed_s": round(elapsed, 1),
+                        "fast": True,
+                    },
+                )
+                await asyncio.sleep(0)
+                if extract_task in done:
+                    break
+
+            page_results = await extract_task
+            read_elapsed = time.perf_counter() - read_t0
+
+            for pg, out in page_results:
+                reader_model = out.model or reader_model
                 if out.unreadable:
                     yield _sse(
                         "page_unreadable",
-                        {"page": pg, "message": "Page unreadable — Needs human review"},
+                        {"page": pg, "message": "Page unreadable - Needs human review"},
                     )
                 for c in out.constraints:
                     d0 = c.to_dict()
-                    if from_camera:
+                    d0["live"] = True
+                    d0["from_cache"] = False
+                    if pg in camera_pages:
                         d0["source_label"] = "Added by camera"
                     all_constraints.append(c)
                     yield _sse("constraint", {**d0, "ui_status": "pending", "phase": "read"})
                     await asyncio.sleep(0)
                 yield _sse(
                     "page_read_done",
-                    {"page": pg, "count": len(out.constraints), "summary": out.summary},
+                    {
+                        "page": pg,
+                        "count": len(out.constraints),
+                        "summary": out.summary,
+                        "fast": True,
+                        "elapsed_s": round(read_elapsed, 1),
+                    },
                 )
 
-            sess.reader_model = reader_model
+            sess.reader_model = reader_model or "gemini-4-neon"
             yield _sse(
                 "read_complete",
                 {
                     "count": len(all_constraints),
-                    "reader_model": reader_model,
+                    "reader_model": sess.reader_model,
                     "checkable": sum(1 for c in all_constraints if c.checkable),
+                    "fast": True,
+                    "elapsed_s": round(read_elapsed, 1),
                 },
             )
             await asyncio.sleep(0)
@@ -1391,6 +1557,12 @@ def _build_certificate(sess: UISession) -> dict[str, Any]:
             used_pct = round(100.0 * float(measured) / float(limit), 1)
         measure_text, simplified = how_measured(c)
         human = c.get("human_confirmed") is True
+        recorded = c.get("recorded_today") is True or c.get("from_cache") is True
+        confirm_label = None
+        if recorded:
+            confirm_label = "Recorded today"
+        elif human:
+            confirm_label = "Confirmed by a person, not by the Verifier"
         rules.append(
             {
                 "id": cid,
@@ -1409,9 +1581,10 @@ def _build_certificate(sess: UISession) -> dict[str, Any]:
                 "verified": c.get("verified"),
                 "needs_human_review": c.get("needs_human_review"),
                 "human_confirmed": human,
-                "confirm_label": (
-                    "Confirmed by a person, not by the Verifier" if human else None
-                ),
+                "recorded_today": recorded,
+                "from_cache": recorded,
+                "live": False if recorded else True,
+                "confirm_label": confirm_label,
             }
         )
 
@@ -1454,7 +1627,7 @@ async def get_traces(session_id: str) -> dict[str, Any]:
     if sess.traces is None and sess.controller_code:
         sess.traces = await asyncio.to_thread(_build_traces, sess, sess.controller_code)
     if sess.traces is None:
-        raise HTTPException(status_code=404, detail="No traces yet — run evolve first")
+        raise HTTPException(status_code=404, detail="No traces yet - run evolve first")
     return sess.traces
 
 
@@ -1491,7 +1664,7 @@ async def attack(session_id: str, body: AttackBody) -> dict[str, Any]:
     """Attack the controller. Each rule is checked on a trace long/fine enough to evaluate it."""
     sess = _get_session(session_id)
     if not sess.controller_code:
-        raise HTTPException(status_code=400, detail="No controller yet — design one first")
+        raise HTTPException(status_code=400, detail="No controller yet - design one first")
 
     from rules.checker import check_compliance
     from rules.schema import RuleSet
@@ -1784,7 +1957,7 @@ def _plain_agent_verdict(
     reject_reason: str | None = None,
     worse_on_n: int = 0,
 ) -> str | None:
-    """Plain verdict from thread data only — never invent a rejection reason."""
+    """Plain verdict from thread data only - never invent a rejection reason."""
     if break_found is True and fix_accepted is True:
         return "Break found and fixed."
     if break_found is True and (fix_rejected is True or fix_accepted is False):

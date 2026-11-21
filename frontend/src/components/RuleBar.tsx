@@ -27,7 +27,7 @@ export function RuleBar({
   const fillPct = used != null ? Math.min(scaleMax, Math.max(0, used)) : 0
   const tickLeft = (100 / scaleMax) * 100
 
-  let caption = "—"
+  let caption = "-"
   if (cannotCheck) caption = cannotCheck
   else if (used == null) caption = "No measurement yet"
   else if (mode === "off" || (mode === "attack" && over)) {

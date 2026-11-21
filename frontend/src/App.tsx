@@ -42,6 +42,11 @@ import {
 
 type Tone = "idle" | "busy" | "error" | "ok"
 
+/** Strip em/en dashes from API/UI copy so the demo never shows them. */
+function plainDash(s: string): string {
+  return s.replace(/\u2014|\u2013/g, "-")
+}
+
 function metricsFromTraces(tr: Record<string, unknown> | null | undefined) {
   const m = (tr?.metrics as Record<string, unknown> | undefined) ?? undefined
   if (!m) {
@@ -328,7 +333,7 @@ export function App() {
     canvas.height = video.videoHeight || 720
     const ctx = canvas.getContext("2d")
     if (!ctx) return
-    // Not mirrored — text reads correctly
+    // Not mirrored - text reads correctly
     ctx.drawImage(video, 0, 0)
     canvas.toBlob(
       (blob) => {
@@ -431,13 +436,19 @@ export function App() {
               return [...prev, row]
             })
           },
+          read_complete: () => {
+            // Unblock the Rules screen as soon as Neon finishes; Decision-1 still updates badges.
+            markDone("Rulebook")
+            setStatusMsg("Gemini Decision 1 is confirming each rule")
+            setBusyLine("Gemini Decision 1 is confirming each rule")
+          },
           verify_complete: (d) => {
             if (Array.isArray(d.constraints)) setConstraints(d.constraints as ConstraintRow[])
             markDone("Rulebook")
             markDone("Rules")
             setTone("ok")
             setBusyLine("")
-            setStatusMsg("Rules ready — next: design a controller")
+            setStatusMsg("Rules ready - next: design a controller")
           },
           error: (d) => {
             setError(String(d.message ?? "Read failed"))
@@ -495,7 +506,7 @@ export function App() {
                 if (bestOh == null || d.overhead_pct < bestOh) bestOh = d.overhead_pct
               }
               const line =
-                `Gemini 4 Hydrogen is writing controllers — ${localTried} tried, ${localPassed} follow the rules.` +
+                `Gemini 4 Hydrogen is writing controllers - ${localTried} tried, ${localPassed} follow the rules.` +
                 (bestOh != null ? ` Best one uses ${bestOh.toFixed(1)}% extra energy.` : "")
               setEvolveStatus(line)
               setBusyLine(line)
@@ -504,10 +515,10 @@ export function App() {
             if (typeof d.best_diff === "string" && d.best_diff) setBestDiff(d.best_diff)
           },
           evolve_complete: async (d) => {
-            setHeadline(String(d.headline ?? ""))
-            setVerdict(String(d.verdict ?? d.headline ?? ""))
-            setWinnerLine(String(d.winner ?? ""))
-            setAuthorLine(String(d.author_line ?? ""))
+            setHeadline(plainDash(String(d.headline ?? "")))
+            setVerdict(plainDash(String(d.verdict ?? d.headline ?? "")))
+            setWinnerLine(plainDash(String(d.winner ?? "")))
+            setAuthorLine(plainDash(String(d.author_line ?? "")))
             setControllerOn(false)
             setMetrics({
               extra: typeof d.extra_energy_pct === "number" ? d.extra_energy_pct : null,
@@ -523,13 +534,13 @@ export function App() {
             setTone(d.passed ? "ok" : "error")
             setEvolveStatus("")
             setBusyLine("")
-            setStatusMsg(d.passed ? "Controller ready — try to break it" : "No safe controller found")
+            setStatusMsg(d.passed ? "Controller ready - try to break it" : "No safe controller found")
             try {
               const st = await (await fetch(`/api/ui/session/${sessionId}/state`)).json()
               setCertificate(st.certificate ?? null)
-              if (st.certificate?.verdict) setVerdict(String(st.certificate.verdict))
-              if (st.certificate?.winner) setWinnerLine(String(st.certificate.winner))
-              if (st.certificate?.author_line) setAuthorLine(String(st.certificate.author_line))
+              if (st.certificate?.verdict) setVerdict(plainDash(String(st.certificate.verdict)))
+              if (st.certificate?.winner) setWinnerLine(plainDash(String(st.certificate.winner)))
+              if (st.certificate?.author_line) setAuthorLine(plainDash(String(st.certificate.author_line)))
               if (st.has_traces) {
                 const tr = await (await fetch(`/api/ui/session/${sessionId}/traces`)).json()
                 setTraces(tr)
@@ -576,7 +587,7 @@ export function App() {
           if (res.held || res.passed) setSurvived((n) => n + 1)
           markDone("Break")
           if (ms > 300 && !onRelease) {
-            // Next time prefer release-only — already using debounce
+            // Next time prefer release-only - already using debounce
           }
         } catch (err) {
           setError(String(err))
@@ -607,10 +618,10 @@ export function App() {
           },
           evolve: (d) => setRawLog((prev) => [...prev.slice(-40), JSON.stringify(d)]),
           fix_complete: async (d) => {
-            setHeadline(String(d.headline ?? ""))
-            setVerdict(String(d.verdict ?? d.headline ?? ""))
-            setWinnerLine(String(d.winner ?? ""))
-            setAuthorLine(String(d.author_line ?? ""))
+            setHeadline(plainDash(String(d.headline ?? "")))
+            setVerdict(plainDash(String(d.verdict ?? d.headline ?? "")))
+            setWinnerLine(plainDash(String(d.winner ?? "")))
+            setAuthorLine(plainDash(String(d.author_line ?? "")))
             setControllerCode((d.best_code as string) || null)
             setTone(d.passed ? "ok" : "error")
             setBusyLine("")
@@ -622,7 +633,7 @@ export function App() {
             } catch {
               /* ignore */
             }
-            setStatusMsg("Fixed — try breaking it again")
+            setStatusMsg("Fixed - try breaking it again")
             setStep("Break")
             setAttackResult(null)
           },
@@ -649,7 +660,7 @@ export function App() {
       setConstraints(loaded.constraints ?? [])
       setControllerCode(loaded.controller_code)
       setCertificate(loaded.certificate)
-      setHeadline(String(loaded.certificate?.headline ?? loaded.fallback_rung ?? ""))
+      setHeadline(plainDash(String(loaded.certificate?.headline ?? loaded.fallback_rung ?? "")))
       {
         const outcome = String(
           loaded.certificate?.outcome ?? loaded.evolve_result?.outcome ?? loaded.fallback_rung ?? "",
@@ -663,7 +674,7 @@ export function App() {
             : 0)
         // Always prefer structured fields; never show the old combined headline as the verdict
         if (loaded.certificate?.verdict) {
-          setVerdict(String(loaded.certificate.verdict))
+          setVerdict(plainDash(String(loaded.certificate.verdict)))
         } else if (outcome === "refused") {
           setVerdict("GridSafe refused: no controller met the rules.")
         } else if (
@@ -673,10 +684,10 @@ export function App() {
         ) {
           setVerdict(`Follows all ${nRules || 1} rules`)
         } else {
-          setVerdict(String(loaded.certificate?.headline ?? ""))
+          setVerdict(plainDash(String(loaded.certificate?.headline ?? "")))
         }
         if (loaded.certificate?.winner) {
-          setWinnerLine(String(loaded.certificate.winner))
+          setWinnerLine(plainDash(String(loaded.certificate.winner)))
         } else if (outcome === "evolved_compliant") {
           setWinnerLine("Winner: a Gemini-written controller.")
         } else if (outcome === "fallback_b3") {
@@ -687,7 +698,7 @@ export function App() {
           setWinnerLine("")
         }
         if (loaded.certificate?.author_line) {
-          setAuthorLine(String(loaded.certificate.author_line))
+          setAuthorLine(plainDash(String(loaded.certificate.author_line)))
         } else if (outcome === "evolved_compliant") {
           setAuthorLine("Written by Gemini 4 Hydrogen, checked by GridSafe")
         } else if (outcome === "fallback_b3") {
@@ -758,7 +769,7 @@ export function App() {
               setStatusMsg("No rule found in this photo")
             } else {
               setNoRulePhoto(false)
-              setStatusMsg("Rules updated — design a controller against every confirmed rule")
+              setStatusMsg("Rules updated - design a controller against every confirmed rule")
             }
             setControllerCode(null)
             setTraces(null)
@@ -811,7 +822,7 @@ export function App() {
       setCertificate(null)
       setHeadline("")
       setVerdict("")
-      setStatusMsg("Rule confirmed by a person — design a controller against every confirmed rule")
+      setStatusMsg("Rule confirmed by a person - design a controller against every confirmed rule")
     } catch (err) {
       setError(String(err))
     }
@@ -1088,7 +1099,7 @@ export function App() {
       return null
     }
     const since = agentTally.running_since_utc
-    let hhmm = "—"
+    let hhmm = "-"
     if (since) {
       try {
         const d = new Date(since)
@@ -1194,7 +1205,7 @@ export function App() {
                   <div>
                     <h2 className="text-3xl font-semibold tracking-tight">Rulebook</h2>
                     <p className="text-muted-foreground text-base mt-1">
-                      {subtitle.Rulebook} Give GridSafe a utility&apos;s rulebook — it builds a controller that
+                      {subtitle.Rulebook} Give GridSafe a utility&apos;s rulebook - it builds a controller that
                       follows it, and proves it.
                     </p>
                   </div>
@@ -1362,6 +1373,9 @@ export function App() {
                     <p className="text-sm text-muted-foreground mt-1">
                       The controller is built against every confirmed rule in this list.
                     </p>
+                    <p className="text-xs text-muted-foreground mt-2 font-mono">
+                      Live demo uses the fast Reader setting. The evaluation used the full setting.
+                    </p>
                   </div>
                   <div className="grid md:grid-cols-2 gap-5">
                     <div>
@@ -1378,7 +1392,7 @@ export function App() {
                         <p className="text-base text-amber-100 flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="tabular-nums">{busyElapsed}s</span>
-                          <span>— {busyStatusLine}</span>
+                          <span>- {busyStatusLine}</span>
                         </p>
                       )}
                       {noRulePhoto && (
@@ -1542,7 +1556,7 @@ export function App() {
                     <p className="text-lg text-amber-100 flex items-center gap-2">
                       <Loader2 className="h-5 w-5 animate-spin" />
                       <span className="tabular-nums">{busyElapsed}s</span>
-                      <span>— {busyStatusLine}</span>
+                      <span>- {busyStatusLine}</span>
                     </p>
                   )}
 
@@ -1581,13 +1595,13 @@ export function App() {
                         GridSafe {controllerOn ? "ON" : "OFF"}
                       </span>
                       <span
-                        className={`relative w-16 h-9 rounded-full transition-colors ${
+                        className={`relative w-14 h-8 shrink-0 overflow-hidden rounded-full transition-colors ${
                           controllerOn ? "bg-emerald-500" : "bg-red-500/80"
                         }`}
                       >
                         <span
-                          className={`absolute top-1 size-7 rounded-full bg-white transition-transform ${
-                            controllerOn ? "translate-x-8" : "translate-x-1"
+                          className={`absolute top-1 left-1 size-6 rounded-full bg-white shadow transition-transform ${
+                            controllerOn ? "translate-x-6" : "translate-x-0"
                           }`}
                         />
                       </span>
@@ -1666,8 +1680,8 @@ export function App() {
                           ? "Over a 30-minute run"
                           : metrics.spanLabel || "Cost"}
                         :{" "}
-                        {metrics.extra != null ? `${metrics.extra.toFixed(1)}%` : "—"} extra energy,
-                        training {metrics.slowed != null ? `${metrics.slowed.toFixed(1)}%` : "—"} slower.
+                        {metrics.extra != null ? `${metrics.extra.toFixed(1)}%` : "-"} extra energy,
+                        training {metrics.slowed != null ? `${metrics.slowed.toFixed(1)}%` : "-"} slower.
                       </p>
                       {metrics.coldSlowed != null && (
                         <p className="text-xs text-muted-foreground">
@@ -1720,7 +1734,7 @@ export function App() {
                           />
                         )}
                         <pre className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap max-h-40 overflow-auto border border-border/40 p-2">
-                          {rawLog.slice(-12).join("\n") || "—"}
+                          {rawLog.slice(-12).join("\n") || "-"}
                         </pre>
                         {bestDiff && (
                           <pre className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap max-h-40 overflow-auto border border-border/40 p-2">
@@ -1931,8 +1945,8 @@ export function App() {
       <footer className="border-t border-border/60 px-5 py-3 flex items-center justify-between text-sm text-muted-foreground font-mono">
         <span>Built today at the Gemini 4 NYC Hackathon</span>
         <span>
-          Commits: {health?.git.commit_count ?? "—"} · First:{" "}
-          {health?.git.first_commit_time?.slice(0, 19) ?? "—"}
+          Commits: {health?.git.commit_count ?? "-"} · First:{" "}
+          {health?.git.first_commit_time?.slice(0, 19) ?? "-"}
         </span>
       </footer>
 
@@ -2048,7 +2062,9 @@ export function App() {
                     {String(r.entity || "Utility")} · page {String(r.page)}
                     {r.used_pct_of_limit != null ? ` · uses ${r.used_pct_of_limit}% of the limit` : ""}
                   </p>
-                  {Boolean(r.confirm_label || r.human_confirmed) && (
+                  {Boolean(r.confirm_label || r.human_confirmed) &&
+                    r.confirm_label !== "Recorded today" &&
+                    !r.recorded_today && (
                     <p className="text-sm mt-2 text-emerald-300">
                       {String(r.confirm_label || "Confirmed by a person, not by the Verifier")}
                     </p>

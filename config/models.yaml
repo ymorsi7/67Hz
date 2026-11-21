@@ -3,9 +3,9 @@
 
 reader:
   model: gemini-4-neon
-  # high spent ~7.5k thought tokens / ~76s on one LIPA page; low keeps structured extraction fast for demo.
-  thinking_level: low
+  thinking_level: high
   job: "Extract typed interconnection constraints with page citations from PDFs, page images, and camera photos."
+  # UI live path passes fast=True (thinking=low, medium resolution, checkable-only). Eval stays on high.
 
 verifier:
   api: decisions

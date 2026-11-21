@@ -50,6 +50,9 @@ If `frontend/public/explainer.mp4` exists (or is served as `/explainer.mp4`), Ru
 ## Waiting (UI round 5)
 During Read / Verify / Build: live elapsed-seconds counter + one plain line naming the model (“Gemini 4 Neon is reading page 7”, “Gemini Decision 1 is checking each rule against the page”, “Gemini 4 Hydrogen is writing 6 controllers”).
 
+## Fast Reader (demo)
+Live UI `read-verify` uses `extract_from_image_bytes(..., fast=True)`: thinking=low, low resolution, dpi 72, checkable types only, ≤25-word snippets, parallel pages. Eval/default stays full (`fast=False`). **Never** substitute a cached/recorded reading in the live path. Rules screen notes: “Live demo uses the fast Reader setting…”.
+
 ## Libraries added
 **None for the product.** (Pillow was used only to generate a test photo under `frontend/screenshots/_ramp_rule_input.png`; not a frontend dependency.)
 

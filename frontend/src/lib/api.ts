@@ -29,6 +29,9 @@ export interface ConstraintRow {
   source_label?: string
   human_confirmed?: boolean
   confirm_badge?: string
+  recorded_today?: boolean
+  from_cache?: boolean
+  live?: boolean
 }
 
 export interface UploadResponse {
@@ -110,6 +113,22 @@ export async function confirmConstraint(sessionId: string, constraintId: string)
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ constraint_id: constraintId }),
+    }),
+  )
+}
+
+export async function useCachedRead(sessionId: string, pages: number[], append = false) {
+  return parseJson<{
+    constraints: ConstraintRow[]
+    message: string
+    label: string
+    live: boolean
+    from_cache: boolean
+  }>(
+    await fetch(`/api/ui/session/${sessionId}/use-cached-read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pages, append }),
     }),
   )
 }

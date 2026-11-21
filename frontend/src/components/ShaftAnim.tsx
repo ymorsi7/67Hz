@@ -54,7 +54,7 @@ export function ShaftAnim({
 
     const stress = gridSafeOn ? stressAfterPu : stressBeforePu
     const twists = gridSafeOn ? twistsAfter ?? [] : twistsBefore ?? []
-    // Pulse magnitude follows the animation — jumps early when OFF
+    // Pulse magnitude follows the animation - jumps early when OFF
     const pulse = gridSafeOn
       ? Math.min(1.2, Math.abs(stress) * 6) * (0.35 + 0.65 * progress)
       : Math.min(1.8, Math.abs(stress) * 8) * (0.5 + 0.5 * Math.sin(progress * Math.PI * 6) ** 2)

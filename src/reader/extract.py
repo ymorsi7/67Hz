@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from typing import Any, Literal
 import yaml
 from dotenv import load_dotenv
 from google import genai
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from reader.pdf_utils import get_pdf_page_count
 from rules.schema import (
@@ -140,6 +141,83 @@ class ExtractionSchema(BaseModel):
     )
 
 
+def _clip_snippet_words(text: str, max_words: int = 25) -> str:
+    words = (text or "").strip().split()
+    if len(words) <= max_words:
+        return " ".join(words)
+    return " ".join(words[:max_words])
+
+
+class FastExtractedConstraintItem(BaseModel):
+    """Lean structured item for UI fast mode: checkable types only, short snippets, no notes."""
+
+    constraint_type: Literal["ramp_rate", "max_step", "fluctuation_band", "dynamic_range"] = Field(
+        description="Checkable large-load power-variation type only.",
+    )
+    value: float = Field(description="Explicit numeric limit stated on the page.")
+    unit: str = Field(
+        description="Exact unit, e.g. 'MW/min', 'MW/s', 'MW', '% of rated load', 'pu'.",
+    )
+    page: int = Field(ge=1, description="1-indexed page number.")
+    snippet: str = Field(
+        description="Verbatim quote, at most 25 words.",
+    )
+    checkable: bool = Field(
+        default=True,
+        description="True when value+unit make this rule simulatable.",
+    )
+    window_s: float | None = Field(default=None, description="Window in seconds if stated.")
+    freq_min_hz: float | None = Field(default=None, description="Band lower Hz if stated.")
+    freq_max_hz: float | None = Field(default=None, description="Band upper Hz if stated.")
+    aggregation: Literal["peak_bin", "adjacent_pair_sum", "band_sum"] | None = Field(
+        default=None,
+        description="Band aggregation if the page states how bins are combined.",
+    )
+    fft_window_s: float | None = Field(default=None)
+    averaging_window_s: float | None = Field(default=None)
+    entity: str = Field(default="", description="Utility / ISO / RTO name if stated.")
+    source_section: str = Field(default="", description="Section or table title if stated.")
+
+    @field_validator("snippet")
+    @classmethod
+    def _limit_snippet(cls, v: str) -> str:
+        return _clip_snippet_words(v, 25)
+
+
+class FastExtractionSchema(BaseModel):
+    """Fast-mode Reader output: only checkable rules + count of other rules on the page."""
+
+    constraints: list[FastExtractedConstraintItem] = Field(
+        default_factory=list,
+        description="Only ramp_rate, max_step, fluctuation_band, dynamic_range with explicit numbers.",
+    )
+    other_rules_count: int = Field(
+        default=0,
+        ge=0,
+        description="How many other (non-checkable) interconnection rules appear on the page.",
+    )
+    document_summary: str = Field(default="", description="One short factual sentence.")
+    unreadable: bool = Field(default=False)
+
+
+FAST_READER_SYSTEM_INSTRUCTION = """You are GridSafe's fast rulebook extractor for live demos.
+Extract ONLY checkable numeric power-variation limits: ramp_rate, max_step, fluctuation_band, dynamic_range.
+
+Type definitions (strict):
+- max_step: a limit on the SIZE of a power CHANGE (e.g. "may not jump more than X MW" in a window). Unit is MW, kW, or % of rated - NOT a duration.
+- ramp_rate: a limit on how FAST power may change (MW per unit time: MW/s, MW/min, %/min, etc.).
+- fluctuation_band: a limit on repeating/oscillatory swing amplitude in a frequency band (or shaft pu torque).
+- dynamic_range: a limit on total operating swing / peak-to-peak range (MW or %).
+
+NOT checkable - put these in other_rules_count only (do NOT emit as max_step/ramp_rate):
+- Limits on how LONG a condition may last (e.g. "for longer than 0.10 seconds", "for longer than 1 minute").
+- Limits on how OFTEN something may happen (e.g. "not more than once per day").
+- Duration-capped demand caps, ride-through, harmonics, power factor, applicability thresholds.
+
+Rules: zero fabrication; verbatim snippets of at most 25 words; no notes field; empty constraints if none.
+"""
+
+
 @dataclass
 class ExtractionOutput:
     """Result of running the Reader on a document or image."""
@@ -215,12 +293,14 @@ def _get_client(client: genai.Client | None = None) -> genai.Client:
 
 
 def _normalize_extracted_item(
-    item: ExtractedConstraintItem,
+    item: ExtractedConstraintItem | FastExtractedConstraintItem,
     idx: int,
     rated_mw: float,
     page_offset: int = 0,
     max_page: int | None = None,
     doc_context: str = "",
+    *,
+    clip_snippet: bool = False,
 ) -> Constraint:
     """Convert raw Pydantic extraction item into a validated GridSafe Constraint."""
     page = item.page
@@ -232,7 +312,8 @@ def _normalize_extracted_item(
 
     ctype = item.constraint_type
     checkable = bool(item.checkable)
-    notes = item.notes.strip()
+    notes = str(getattr(item, "notes", "") or "").strip()
+    snippet = _clip_snippet_words(item.snippet.strip(), 25) if clip_snippet else item.snippet.strip()
     assumptions: list[str] = []
 
     # Enforce strict checkability via deterministic unit normalizer
@@ -244,7 +325,7 @@ def _normalize_extracted_item(
             value=item.value,
             unit=item.unit.strip(),
             page=page,
-            snippet=item.snippet.strip(),
+            snippet=snippet,
             checkable=True,
         )
         try:
@@ -270,7 +351,7 @@ def _normalize_extracted_item(
         ConstraintType.RAMP_RATE.value,
         ConstraintType.DYNAMIC_RANGE.value,
     ):
-        win_range = parse_window_range_s(f"{item.snippet} {notes}")
+        win_range = parse_window_range_s(f"{snippet} {notes}")
         if win_range is not None:
             lo_s, hi_s = win_range
             if win_s is None or (lo_s - 1e-9 <= win_s < hi_s - 1e-9):
@@ -283,7 +364,7 @@ def _normalize_extracted_item(
     entity = canonicalize_entity(
         entity=item.entity,
         source_section=item.source_section,
-        snippet=item.snippet,
+        snippet=snippet,
         doc_context=doc_context,
     )
 
@@ -296,7 +377,7 @@ def _normalize_extracted_item(
         value=item.value,
         unit=item.unit.strip(),
         page=page,
-        snippet=item.snippet.strip(),
+        snippet=snippet,
         checkable=checkable,
         confidence=None,
         entity=entity,
@@ -454,33 +535,59 @@ def extract_from_image_bytes(
     rated_mw: float = 100.0,
     model: str | None = None,
     thinking_level: str | None = None,
-    resolution: str = "high",
+    resolution: str | None = None,
     client: genai.Client | None = None,
+    fast: bool = False,
 ) -> ExtractionOutput:
-    """Extract constraints from a single page image or camera photo using Gemini 4 Neon."""
+    """Extract constraints from a single page image or camera photo using Gemini 4 Neon.
+
+    ``fast=False`` (default): evaluation settings - config thinking level + high resolution,
+    full schema including qualitative ``other`` rules.
+
+    ``fast=True``: UI demo path - thinking=low, low resolution, checkable types only,
+    short snippets, no notes. Does not change the default/eval path.
+    """
     default_model, default_thinking = load_reader_config()
     model_id = model or default_model
-    t_level = thinking_level or default_thinking
+    if fast:
+        t_level = thinking_level or "low"
+        res = resolution or "low"
+        system = FAST_READER_SYSTEM_INSTRUCTION
+        schema_model: type[BaseModel] = FastExtractionSchema
+        prompt = (
+            f"Fast extract page {page_number}. Return ONLY true checkable limits: "
+            f"max_step = size of a power change (MW); ramp_rate = MW per unit time; "
+            f"fluctuation_band / dynamic_range as defined. "
+            f"If a rule limits how long something may last or how often it may happen, "
+            f"do NOT put it in constraints - count it in other_rules_count only. "
+            f"Snippets ≤25 words. Use page={page_number}. Empty constraints if none. "
+            f"Set unreadable=true if the image cannot be read."
+        )
+    else:
+        t_level = thinking_level or default_thinking
+        res = resolution or "high"
+        system = READER_SYSTEM_INSTRUCTION
+        schema_model = ExtractionSchema
+        prompt = (
+            f"Analyze this single page image (page {page_number}) from a utility interconnection rulebook "
+            f"or handwritten rule sheet. Extract all explicit large-load power-variation constraints "
+            f"(ramp_rate, max_step, fluctuation_band, dynamic_range) and keep qualitative/non-numeric "
+            f"interconnection obligations with checkable=false. Use page={page_number} for every item. "
+            f"If the page has no limits, return an empty list. If the image is unreadable, set unreadable=true."
+        )
     api_client = _get_client(client)
 
     b64 = base64.b64encode(image_bytes).decode("utf-8")
-    prompt = (
-        f"Analyze this single page image (page {page_number}) from a utility interconnection rulebook "
-        f"or handwritten rule sheet. Extract all explicit large-load power-variation constraints "
-        f"(ramp_rate, max_step, fluctuation_band, dynamic_range) and keep qualitative/non-numeric "
-        f"interconnection obligations with checkable=false. Use page={page_number} for every item. "
-        f"If the page has no limits, return an empty list. If the image is unreadable, set unreadable=true."
-    )
 
     interaction = api_client.interactions.create(
         model=model_id,
-        system_instruction=READER_SYSTEM_INSTRUCTION,
+        system_instruction=system,
         input=[
             {
                 "type": "image",
                 "data": b64,
                 "mime_type": mime_type,
-                "resolution": resolution,
+                "resolution": res,
             },
             {"type": "text", "text": prompt},
         ],
@@ -488,19 +595,50 @@ def extract_from_image_bytes(
         response_format={
             "type": "text",
             "mime_type": "application/json",
-            "schema": ExtractionSchema.model_json_schema(),
+            "schema": schema_model.model_json_schema(),
         },
     )
 
-    parsed = ExtractionSchema.model_validate_json(interaction.output_text)
-    constraints = [
-        _normalize_extracted_item(
-            item, idx, rated_mw=rated_mw, page_offset=0, max_page=page_number, doc_context=source_name
-        )
-        for idx, item in enumerate(parsed.constraints)
-    ]
-    for c in constraints:
-        c.page = page_number
+    if fast:
+        parsed_fast = FastExtractionSchema.model_validate_json(interaction.output_text)
+        constraints = [
+            _normalize_extracted_item(
+                item,
+                idx,
+                rated_mw=rated_mw,
+                page_offset=0,
+                max_page=page_number,
+                doc_context=source_name,
+                clip_snippet=True,
+            )
+            for idx, item in enumerate(parsed_fast.constraints)
+        ]
+        # Drop anything that failed checkability after unit normalize
+        constraints = [c for c in constraints if c.checkable]
+        for c in constraints:
+            c.page = page_number
+            c.notes = ""
+        other_count = int(parsed_fast.other_rules_count or 0)
+        unreadable = parsed_fast.unreadable
+        summary = parsed_fast.document_summary
+        if other_count:
+            summary = (summary + f" ({other_count} other non-checkable rule(s) on page)").strip()
+        raw_parsed: dict[str, Any] = parsed_fast.model_dump()
+    else:
+        parsed = ExtractionSchema.model_validate_json(interaction.output_text)
+        constraints = [
+            _normalize_extracted_item(
+                item, idx, rated_mw=rated_mw, page_offset=0, max_page=page_number, doc_context=source_name
+            )
+            for idx, item in enumerate(parsed.constraints)
+        ]
+        for c in constraints:
+            c.page = page_number
+        other_count = sum(1 for c in constraints if not c.checkable)
+        unreadable = parsed.unreadable
+        summary = parsed.document_summary
+        raw_parsed = parsed.model_dump()
+
     constraints = _deduplicate_constraints(constraints, rated_mw=rated_mw)
     detect_conflicts(constraints, rated_mw=rated_mw, group_by_entity=True)
 
@@ -509,10 +647,62 @@ def extract_from_image_bytes(
         model=model_id,
         constraints=constraints,
         total_pages=1,
-        unreadable=parsed.unreadable,
-        summary=parsed.document_summary,
-        raw_responses=[{"page": page_number, "interaction_id": interaction.id, "parsed": parsed.model_dump()}],
+        unreadable=unreadable,
+        summary=summary,
+        raw_responses=[
+            {
+                "page": page_number,
+                "interaction_id": interaction.id,
+                "parsed": raw_parsed,
+                "fast": fast,
+                "thinking_level": t_level,
+                "resolution": res,
+                "other_rules_count": other_count,
+                "usage": {
+                    "input_tokens": getattr(getattr(interaction, "usage", None), "total_input_tokens", None),
+                    "output_tokens": getattr(getattr(interaction, "usage", None), "total_output_tokens", None),
+                    "thought_tokens": getattr(getattr(interaction, "usage", None), "total_thought_tokens", None),
+                },
+            }
+        ],
     )
+
+
+def extract_pages_parallel(
+    pages: list[tuple[int, bytes, str]],
+    *,
+    source_name: str,
+    rated_mw: float = 100.0,
+    fast: bool = False,
+    max_workers: int | None = None,
+    client: genai.Client | None = None,
+) -> list[tuple[int, ExtractionOutput]]:
+    """Read multiple page images in parallel. Each item is (page_number, image_bytes, mime_type)."""
+    if not pages:
+        return []
+    workers = max_workers or min(4, len(pages))
+    api_client = _get_client(client)
+
+    def _one(item: tuple[int, bytes, str]) -> tuple[int, ExtractionOutput]:
+        pg, img, mime = item
+        out = extract_from_image_bytes(
+            img,
+            mime,
+            source_name=source_name,
+            page_number=pg,
+            rated_mw=rated_mw,
+            client=api_client,
+            fast=fast,
+        )
+        return pg, out
+
+    results: list[tuple[int, ExtractionOutput]] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_one, item) for item in pages]
+        for fut in as_completed(futs):
+            results.append(fut.result())
+    results.sort(key=lambda x: x[0])
+    return results
 
 
 def extract_from_pdf(

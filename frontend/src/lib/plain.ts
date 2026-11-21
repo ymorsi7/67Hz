@@ -1,6 +1,6 @@
 import type { ConstraintRow } from "@/lib/api"
 
-/** Plain-English rule sentence from typed fields (templates only — no model). */
+/** Plain-English rule sentence from typed fields (templates only - no model). */
 export function plainRule(c: ConstraintRow): string {
   const v = c.value
   const unit = c.unit || ""
