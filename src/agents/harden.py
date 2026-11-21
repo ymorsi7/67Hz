@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+
+from repo_paths import find_repo_root
 import time
 from typing import Any
 
@@ -17,7 +19,7 @@ from evolve.loop import evolve_controller
 from rules.profiles import load_utility_profiles
 from workload.synth import all_preset_workloads
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 ATTACKS_DIR = REPO_ROOT / "eval" / "attacks"
 TALLY_PATH = ATTACKS_DIR / "hardening_tally.jsonl"
 STATE_PATH = ATTACKS_DIR / "hardening_state.json"

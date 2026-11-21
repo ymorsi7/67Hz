@@ -62,21 +62,16 @@ Disable with `managed_agent.enable_agents: false` in `config/models.yaml` for th
 
 | Folder | Role |
 | --- | --- |
-| `agents/` | Managed-agent bridge, provision, harden, fix gate |
+| `.agents/` | Managed-agent skills, hooks, AGENTS.md |
 | `config/` | Model + IEEE FBM YAML |
-| `controllers/` | Saved controller code |
-| `docs/` | Numbers, handoff, API notes, long README |
+| `docs/` | Spec, numbers, handoff, API notes, long README |
 | `eval/` | Results JSON, gold labels, attacks, cache |
-| `evolve/` | Designer loop + baselines (B0/B1/B3) |
 | `frontend/` | Vite/React UI |
-| `reader/` | Neon extract + Decisions verify |
-| `rules/` | Schema, checker, profiles, units |
 | `scripts/` | Report, eval, harden helpers |
 | `server/` | FastAPI app + agent/UI routes |
-| `sim/` | Plant + shaft simulation |
 | `specs/` | Rulebook PDFs + sources |
+| `src/` | Engine packages: agents, controllers, evolve, reader, rules, sim, workload |
 | `tests/` | pytest |
-| `workload/` | Synthetic training traces |
 
 ## Built today
 

@@ -6,8 +6,17 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, AsyncIterator
+
+# Engine packages live under src/ (also support legacy top-level layout).
+_ROOT = Path(__file__).resolve().parent.parent
+_SRC = _ROOT / "src"
+for _p in (_SRC, _ROOT):
+    _s = str(_p)
+    if _s not in sys.path:
+        sys.path.insert(0, _s)
 
 import yaml
 from dotenv import load_dotenv
@@ -16,7 +25,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from repo_paths import find_repo_root
+
+REPO_ROOT = find_repo_root()
 load_dotenv(REPO_ROOT / ".env")
 
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"

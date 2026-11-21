@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 import yaml
 from dotenv import load_dotenv
 from google import genai
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 MODELS_PATH = REPO_ROOT / "config" / "models.yaml"
 
 

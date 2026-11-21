@@ -11,7 +11,8 @@ power-smoothing controller that the deterministic checker verifies, or refuse.
 5. **Certify** — use skill `certify`. Only claim compliance after the backend re-checks.
 
 ## Ground truth
-- The deterministic checker in `rules/checker.py` is ground truth.
+- The deterministic checker in `rules/checker.py` (or `src/rules/checker.py`) is ground truth.
+- Engine packages may live at the repo root (legacy sandbox snapshot) or under `src/`; both layouts are valid.
 - An agent's claim is never trusted without backend re-check.
 - Refuse instead of guessing. Never invent numeric limits or margins.
 - Never request or use `GEMINI_API_KEY` inside the sandbox.

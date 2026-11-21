@@ -17,6 +17,7 @@ import time
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT))
 
 from eval.extraction import evaluate_extraction, load_human_gold_files, _constraints_match

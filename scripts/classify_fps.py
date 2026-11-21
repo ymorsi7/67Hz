@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT))
 
 from eval.extraction import load_human_gold_files, _constraints_match

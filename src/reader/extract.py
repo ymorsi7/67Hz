@@ -11,6 +11,8 @@ import base64
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any, Literal
 
 import yaml
@@ -27,7 +29,7 @@ from rules.schema import (
 )
 from rules.units import UnitConversionError, normalize_constraint_limit, parse_window_range_s
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 load_dotenv(REPO_ROOT / ".env")
 MODELS_CONFIG_PATH = REPO_ROOT / "config" / "models.yaml"
 

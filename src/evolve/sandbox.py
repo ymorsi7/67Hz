@@ -18,6 +18,7 @@ import sys
 import time
 from typing import Any
 
+from repo_paths import engine_path_entries, find_repo_root
 from rules.schema import RuleSet
 from sim.plant import BatteryConfig, PlantConfig
 from workload.synth import WorkloadParams
@@ -442,14 +443,17 @@ def evaluate_controller_sandboxed(
     }
 
     try:
+        repo_root = find_repo_root()
+        env = _sanitized_env()
+        env["PYTHONPATH"] = os.pathsep.join(str(p) for p in engine_path_entries(repo_root))
         proc = subprocess.run(
             [sys.executable, str(RUNNER_PATH)],
             input=json.dumps(payload),
             text=True,
             capture_output=True,
             timeout=timeout_s,
-            env=_sanitized_env(),
-            cwd=str(RUNNER_PATH.parent.parent),
+            env=env,
+            cwd=str(repo_root),
             check=False,
         )
     except subprocess.TimeoutExpired:

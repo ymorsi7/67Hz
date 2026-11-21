@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field
 import difflib
 import os
 from pathlib import Path
+
+from repo_paths import find_repo_root, resolve_engine_file
 import random
 import re
 import time
@@ -31,9 +33,9 @@ from rules.units import UnitConversionError, normalize_constraint_limit
 from sim.plant import PlantConfig
 from workload.synth import WorkloadParams
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 MODELS_YAML = REPO_ROOT / "config" / "models.yaml"
-SEED_CONTROLLER_PATH = REPO_ROOT / "controllers" / "seed.py"
+SEED_CONTROLLER_PATH = resolve_engine_file("controllers", "seed.py")
 
 CONSERVATIVE_FLOOR_CODE = '''"""Conservative fixed-floor fallback controller (100% rated power floor)."""
 

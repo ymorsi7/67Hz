@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+
+from repo_paths import find_repo_root
 import time
 from typing import Any
 
@@ -16,7 +18,7 @@ from evolve.loop import evolve_controller
 from rules.profiles import UtilityProfile, load_utility_profiles
 from workload.synth import all_preset_workloads
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 JOBS_DIR = REPO_ROOT / "eval" / "jobs"
 
 

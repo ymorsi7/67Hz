@@ -14,12 +14,14 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 from rules.schema import Constraint, RuleSet, canonicalize_entity
 from rules.units import UnitConversionError, normalize_constraint_limit
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 DEFAULT_EXTRACTIONS_DIR = REPO_ROOT / "eval" / "cache" / "extractions"
 
 _CONFLICT_NOTE_RE = re.compile(r"\s*\[CONFLICT[^\]]*\]", flags=re.IGNORECASE)

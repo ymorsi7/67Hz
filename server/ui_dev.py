@@ -6,15 +6,25 @@ Run:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+# Engine packages live under src/ (also support legacy top-level layout).
+_ROOT = Path(__file__).resolve().parent.parent
+_SRC = _ROOT / "src"
+for _p in (_SRC, _ROOT):
+    _s = str(_p)
+    if _s not in sys.path:
+        sys.path.insert(0, _s)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from repo_paths import find_repo_root
 from server.ui_api import ui_router
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 load_dotenv(REPO_ROOT / ".env")
 
 app = FastAPI(title="GridSafe UI Dev", version="0.1.0")

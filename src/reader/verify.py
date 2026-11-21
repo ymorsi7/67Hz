@@ -15,6 +15,8 @@ import base64
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any, Callable
 
 import yaml
@@ -25,7 +27,7 @@ from pydantic import BaseModel, Field
 from reader.pdf_utils import render_pdf_page_png
 from rules.schema import Constraint
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 load_dotenv(REPO_ROOT / ".env")
 MODELS_CONFIG_PATH = REPO_ROOT / "config" / "models.yaml"
 

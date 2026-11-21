@@ -1,12 +1,15 @@
 # GridSafe Agent Handoff
 
-Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (`ymorsi7/67Hz`, MIT). Also read `SPEC.md`, `docs/API_NOTES.md`, `FAILURES.md`, `RESULTS.md`.
+Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (`ymorsi7/67Hz`, MIT). Also read `docs/SPEC.md`, `docs/API_NOTES.md`, `FAILURES.md`, `RESULTS.md`.
 
 ## Hard rules
 - **User commits/pushes** (`AGENTS.md`). Never `git commit` / `git push`; leave a commit message.
 - Never invent results or write `eval/gold/*.json`. Numbers only from saved runs.
-- No `GEMINI_API_KEY` in sandboxes. `workload/` `sim/` `rules/` `controllers/` `evolve/` = pure Python + numpy only.
+- No `GEMINI_API_KEY` in sandboxes. Engine packages under `src/` (`workload/`, `sim/`, `rules/`, `controllers/`, `evolve/`; legacy top-level layout also ok) = pure Python + numpy only.
 - Held-out profiles only in `make eval-final`. Prefer profile **`lipa_pseg`** (native LIPA aggregations); **`lipa`** is CAISO-straw peak_bin.
+
+## Layout
+Engine packages live under `src/` (`agents`, `controllers`, `evolve`, `reader`, `rules`, `sim`, `workload`). Imports stay bare (`from rules.schema import …`); `src/` is on `PYTHONPATH` via `pyproject.toml`, the Makefile, and `src/repo_paths.py`. Spec: `docs/SPEC.md`.
 
 ## Status (Phases 0–7 + evidence check + acceptance gate)
 **Built.** Physics/checker (incl. band aggregations + `band_long`), Reader/Verifier, evolve + B0/B1/B3, managed agents, UI mount, final eval docs, demo safety.
@@ -16,8 +19,8 @@ Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (`ymorsi7/67H
 ### Backend frozen after this change
 | Item | What | Key artifact |
 | --- | --- | --- |
-| **Fix acceptance gate** | Accept fix only if (a) CX passes, (b) every preset passes, (c) validation Rand20 **SEED=9001** ≥ current. Reject → keep current + open issue | `agents/verify.py::gate_fix`, `AgentBridge.accept_fix`, `server/agent_api.py`, `agents/harden.py` |
-| Hardener timeouts | Background `interactions.create` + poll; SSE heartbeat `still working, N seconds`; red-team skill **45 s** CX deadline | `agents/bridge.py`, `.agents/skills/red-team/SKILL.md` |
+| **Fix acceptance gate** | Accept fix only if (a) CX passes, (b) every preset passes, (c) validation Rand20 **SEED=9001** ≥ current. Reject → keep current + open issue | `src/agents/verify.py::gate_fix`, `AgentBridge.accept_fix`, `server/agent_api.py`, `src/agents/harden.py` |
+| Hardener timeouts | Background `interactions.create` + poll; SSE heartbeat `still working, N seconds`; red-team skill **45 s** CX deadline | `src/agents/bridge.py`, `.agents/skills/red-team/SKILL.md` |
 | Gated harden re-score | `lipa` / `lipa_pseg` under gate; holdout **SEED=31337** | `eval/results/harden_fix_31337.json` (ungated 4242 kept) |
 | `make eval-final SEED=20261121` | Presets + random suite + extraction; **42.32 s** | `eval/results/eval_final_timing.json`, summary in `eval/results/final_20261121.json` |
 | Controllers cache | 3-seed Noop/B1/B0/B3/GridSafe | `eval/cache/phase3_results.json` |
@@ -47,8 +50,8 @@ Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (`ymorsi7/67H
 - Open rejected fixes: `eval/attacks/open_issues.jsonl`
 
 ## Agent bridge & `server/agent_api.py`
-- **Bridge:** `agents/bridge.py` — host `message_agent`; no subagent nesting; checker re-checks every claim; **`accept_fix` gate** (CX + presets + SEED=9001); hardener turns use **background=True + poll** with heartbeats; threads → `eval/agent_threads/`.
-- **Agents:** `gridsafe-engineer` (Hydrogen) / `gridsafe-hardener` (Carbon); provision `agents/provision.py`.
+- **Bridge:** `src/agents/bridge.py` — host `message_agent`; no subagent nesting; checker re-checks every claim; **`accept_fix` gate** (CX + presets + SEED=9001); hardener turns use **background=True + poll** with heartbeats; threads → `eval/agent_threads/`.
+- **Agents:** `gridsafe-engineer` (Hydrogen) / `gridsafe-hardener` (Carbon); provision `src/agents/provision.py`.
 - **Mounted** from `server/app.py` with UI router. `make demo` / `make run` = one port.
 - **API:** `POST /api/agents/harden` (SSE: status incl. `still working, N seconds`, agent_message, backend_check, verdict; reject stream: `fix rejected: it made things worse on N other workloads`); `GET /api/agents/tally`; `GET /api/agents/threads[/{id}]`.
 

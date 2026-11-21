@@ -10,17 +10,28 @@ import asyncio
 from datetime import datetime, timezone
 import json
 import queue
+import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+# Engine packages live under src/ (also support legacy top-level layout).
+_ROOT = Path(__file__).resolve().parent.parent
+_SRC = _ROOT / "src"
+for _p in (_SRC, _ROOT):
+    _s = str(_p)
+    if _s not in sys.path:
+        sys.path.insert(0, _s)
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from repo_paths import find_repo_root
+
+REPO_ROOT = find_repo_root()
 THREADS_DIR = REPO_ROOT / "eval" / "agent_threads"
 ATTACKS_DIR = REPO_ROOT / "eval" / "attacks"
 TALLY_PATH = ATTACKS_DIR / "hardening_tally.jsonl"

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 AGENTS_DIR = REPO_ROOT / ".agents"
 
 SKILL_NAMES_ENGINEER = ("read-rulebook", "evolve-controller", "certify")

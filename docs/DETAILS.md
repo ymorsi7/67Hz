@@ -58,9 +58,9 @@ Two saved Antigravity agents talk only through our host `message_agent` bridge (
 
 | Skill / tool | Runs inside the agent sandbox | Runs on our backend (host) |
 | --- | --- | --- |
-| `read-rulebook` (custom function) | Agent only *calls* the function | Neon Reader (`reader/extract.py`) parses PDF/page images |
-| `verify_constraint` (custom function) | Agent only *calls* the function | Decisions API Verifier (`reader/verify.py`) |
-| `evolve-controller` | May inspect mounted repo code / draft text | Host `evolve/loop.py` (B3 seed + Hydrogen mutations + sandbox checker) produces the real controller |
+| `read-rulebook` (custom function) | Agent only *calls* the function | Neon Reader (`src/reader/extract.py`) parses PDF/page images |
+| `verify_constraint` (custom function) | Agent only *calls* the function | Decisions API Verifier (`src/reader/verify.py`) |
+| `evolve-controller` | May inspect mounted repo code / draft text | Host `src/evolve/loop.py` (B3 seed + Hydrogen mutations + sandbox checker) produces the real controller |
 | `certify` | May draft certificate text | Host re-runs checker/tests before any compliance claim |
 | `message_agent` | Emits the function call | Host creates/continues a `gridsafe-hardener` interaction and returns the reply |
 | `code_execution` | Sandbox Python + numpy on mounted `/workspace/repo` | Never trusted alone for compliance |
@@ -69,7 +69,7 @@ Two saved Antigravity agents talk only through our host `message_agent` bridge (
 
 | Skill / tool | Runs inside the agent sandbox | Runs on our backend (host) |
 | --- | --- | --- |
-| `red-team` | Proposes adversarial workloads / short numpy probes | Host re-checks every claimed counterexample with `rules/checker.py` |
+| `red-team` | Proposes adversarial workloads / short numpy probes | Host re-checks every claimed counterexample with `src/rules/checker.py` |
 | `analyze-failure` | Explains a break and suggests a fix hint | Host confirms measured margins; engineer fix is re-evolved on host |
 | `message_agent` | May call back to the engineer | Host bridges the reply; logs JSON to `eval/agent_threads/` |
 | `code_execution` | Optional short attack probes | Rejected if the host checker does not reproduce the break |
@@ -85,4 +85,4 @@ Background hardening (`make harden`) and UI `POST /api/agents/harden` both use t
 ## Specs
 
 - Run `make fetch-specs` to download the real utility interconnection PDFs listed in `specs/SOURCES.md`.
-- Full build plan: `SPEC.md`. API probe notes: `docs/API_NOTES.md`.
+- Full build plan: `docs/SPEC.md`. API probe notes: `docs/API_NOTES.md`.

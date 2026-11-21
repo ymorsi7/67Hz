@@ -4,6 +4,7 @@ UVICORN := .venv/bin/uvicorn
 PORT ?= 8000
 SEED ?= 20261121
 RANDOM_N ?= 20
+export PYTHONPATH := src:$(CURDIR)$(if $(PYTHONPATH),:$(PYTHONPATH),)
 
 .PHONY: test eval eval-final eval-live report run replay demo demo-check build-ui fetch-specs agent-job harden harden-pause harden-resume minimal-exchange b2-budget
 

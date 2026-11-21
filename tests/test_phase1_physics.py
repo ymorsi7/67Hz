@@ -28,7 +28,7 @@ def test_sandbox_packages_have_no_scipy_or_pymupdf() -> None:
     """Decision #4: sandbox code (workload/, sim/, rules/) uses pure Python + numpy only."""
     forbidden = {"scipy", "fitz", "pymupdf"}
     for pkg in ("workload", "sim", "rules"):
-        for py_file in (REPO_ROOT / pkg).glob("*.py"):
+        for py_file in (REPO_ROOT / "src" / pkg).glob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):

@@ -17,9 +17,14 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+# Bootstrap: this file runs as a script; put src/ on path before importing repo_paths.
+_SRC = Path(__file__).resolve().parent.parent
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from repo_paths import ensure_import_paths
+
+REPO_ROOT = ensure_import_paths()
 
 import numpy as np
 

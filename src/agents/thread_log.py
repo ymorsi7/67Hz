@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 THREADS_DIR = REPO_ROOT / "eval" / "agent_threads"
 
 

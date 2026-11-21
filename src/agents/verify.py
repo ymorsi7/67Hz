@@ -5,13 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 from evolve.sandbox import evaluate_controller_sandboxed
 from rules.schema import Constraint, RuleSet
 from workload.synth import WorkloadParams, all_preset_workloads, generate_workload
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 OPEN_ISSUES_PATH = REPO_ROOT / "eval" / "attacks" / "open_issues.jsonl"
 # Validation random suite used only by the fix-acceptance gate (never as a holdout score seed).
 FIX_VALIDATION_SEED = 9001

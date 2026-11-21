@@ -1,7 +1,7 @@
 # GridSafe Physics & Checker Validation
 
 Generated from `scripts/generate_validation_doc.py` on 2026-11-21 17:58 UTC.
-All numbers below come directly from deterministic runs of `sim/shaft.py`, `sim/plant.py`, `workload/synth.py`, and `rules/checker.py` (pure Python + `numpy`, no `scipy`).
+All numbers below come directly from deterministic runs of `src/sim/shaft.py`, `src/sim/plant.py`, `src/workload/synth.py`, and `src/rules/checker.py` (pure Python + `numpy`, no `scipy`).
 
 ## 1. IEEE First Benchmark Model Torsional Mode Validation
 
@@ -49,4 +49,4 @@ Source parameters: `config/fbm.yaml` (IEEE SSR Task Force, *First benchmark mode
 - **Modal damping**: Linear modal damping ratio `zeta = 0.005` is assumed uniformly across torsional modes in the frequency-domain transfer function `H_m(w)`. Real turbine-generator units exhibit mode-dependent steam-damping and electrical network negative damping near series-compensated lines.
 - **Electrical coupling**: Net cluster load perturbation `dP_grid(t) / S_base` is applied directly as an electrical torque perturbation at the generator bus (`coupling_factor = 1.0` default) without full AC network impedance or sub-transient flux dynamics.
 - **Battery model**: Idealized power-limited, SOC-limited energy storage with symmetric charge/discharge efficiency (`sqrt(0.90)` each way for 90% round-trip) and a C-rate-weighted Equivalent Full Cycles (EFC) wear proxy rather than an electrochemical degradation model.
-- **Pure Python + `numpy` sandbox compatibility**: `workload/`, `sim/`, and `rules/` have zero `scipy` or `PyMuPDF` imports (verified by automated AST unit test) so the managed agent sandbox runs the exact same physics and checker code as the backend.
+- **Pure Python + `numpy` sandbox compatibility**: `src/workload/`, `src/sim/`, and `src/rules/` have zero `scipy` or `PyMuPDF` imports (verified by automated AST unit test) so the managed agent sandbox runs the exact same physics and checker code as the backend.

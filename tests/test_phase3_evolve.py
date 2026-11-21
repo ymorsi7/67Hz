@@ -39,7 +39,7 @@ def test_sandbox_packages_have_no_scipy_pymupdf_or_pydantic() -> None:
     """Decision #4: sandbox-run packages use pure Python + numpy only."""
     forbidden = {"scipy", "fitz", "pymupdf", "pydantic"}
     for pkg in ("workload", "sim", "rules", "controllers", "evolve"):
-        for py_file in (REPO_ROOT / pkg).glob("*.py"):
+        for py_file in (REPO_ROOT / "src" / pkg).glob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -52,7 +52,7 @@ def test_sandbox_packages_have_no_scipy_pymupdf_or_pydantic() -> None:
 
 
 def test_seed_controller_under_60_lines_and_valid() -> None:
-    seed_path = REPO_ROOT / "controllers" / "seed.py"
+    seed_path = REPO_ROOT / "src" / "controllers" / "seed.py"
     code = seed_path.read_text(encoding="utf-8")
     assert len(code.splitlines()) < 60
     res = validate_controller_code(code)

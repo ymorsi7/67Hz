@@ -10,12 +10,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+
+from repo_paths import find_repo_root
 from typing import Any
 
 import numpy as np
 import yaml
 
-DEFAULT_FBM_PATH = Path(__file__).resolve().parent.parent / "config" / "fbm.yaml"
+DEFAULT_FBM_PATH = find_repo_root() / "config" / "fbm.yaml"
 DEFAULT_MODAL_DAMPING_RATIO = 0.005  # Light mechanical/electrical damping assumption
 
 

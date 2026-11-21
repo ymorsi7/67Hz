@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+
+from repo_paths import find_repo_root
 import time
 from typing import Any
 
@@ -14,9 +16,7 @@ from rules.schema import RuleSet
 from sim.plant import PlantConfig
 from workload.synth import WorkloadParams
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
+REPO_ROOT = find_repo_root()
 @dataclass
 class B2Result:
     baseline: str
