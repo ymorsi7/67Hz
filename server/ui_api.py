@@ -242,7 +242,45 @@ def _build_traces(sess: UISession, code: str) -> dict[str, Any]:
 
     before = simulate_plant(trace, controller=noop_controller)
     after = simulate_plant(trace, controller=ctrl)
+    report_before = check_compliance(before, ruleset, strict_review=False)
     report = check_compliance(after, ruleset, strict_review=False)
+
+    def _used_pct(measured: Any, limit: Any) -> float | None:
+        if isinstance(measured, (int, float)) and isinstance(limit, (int, float)) and float(limit) != 0.0:
+            return round(100.0 * float(measured) / float(limit), 1)
+        return None
+
+    rule_bars: list[dict[str, Any]] = []
+    by_id_before = {r.constraint_id: r for r in report_before.results}
+    by_id_after = {r.constraint_id: r for r in report.results}
+    for c in ruleset.constraints:
+        rb = by_id_before.get(c.id)
+        ra = by_id_after.get(c.id)
+        used_off = _used_pct(rb.measured, rb.limit) if rb is not None else None
+        used_on = _used_pct(ra.measured, ra.limit) if ra is not None else None
+        rule_bars.append(
+            {
+                "id": c.id,
+                "plain": plain_rule_sentence(c),
+                "entity": c.entity,
+                "page": c.page,
+                "constraint_type": c.constraint_type,
+                "measured_off": float(rb.measured) if rb is not None and rb.measured is not None else None,
+                "measured_on": float(ra.measured) if ra is not None and ra.measured is not None else None,
+                "limit": float(ra.limit) if ra is not None and ra.limit is not None else (
+                    float(rb.limit) if rb is not None and rb.limit is not None else None
+                ),
+                "used_pct_off": used_off,
+                "used_pct_on": used_on,
+                "passed_off": bool(rb.passed) if rb is not None and rb.passed is not None else None,
+                "passed_on": bool(ra.passed) if ra is not None and ra.passed is not None else None,
+                "cannot_check_reason": (
+                    None
+                    if (ra is not None and ra.status != "not_evaluable")
+                    else (ra.details if ra is not None else "No measurement returned for this rule.")
+                ),
+            }
+        )
 
     limit_bands: list[dict[str, Any]] = []
     for c in ruleset.constraints:
@@ -330,6 +368,8 @@ def _build_traces(sess: UISession, code: str) -> dict[str, Any]:
             "before": before.metrics.to_dict(),
             "after": after.metrics.to_dict(),
         },
+        "rule_bars": rule_bars,
+        "n_rules": len(rule_bars),
     }
 
 
@@ -365,6 +405,11 @@ def _save_replay(sess: UISession) -> Path:
 
 class SelectPagesBody(BaseModel):
     pages: list[int] = Field(default_factory=list)
+    append: bool = False
+
+
+class RemoveConstraintBody(BaseModel):
+    constraint_id: str
 
 
 class EvolveBody(BaseModel):
@@ -482,9 +527,18 @@ def how_measured(c: dict[str, Any] | Any) -> tuple[str, bool]:
     return text, simplified
 
 
-def outcome_headline(outcome: str, n_rules: int, gemini_passed: int | None = None) -> str:
+def outcome_verdict(outcome: str, n_rules: int) -> str:
+    """Large Controller-screen verdict. No jargon."""
+    if outcome in {"evolved_compliant", "fallback_b3", "fallback_conservative_floor"}:
+        return f"Follows all {n_rules} rules"
+    if outcome == "refused":
+        return "GridSafe refused: no controller met the rules."
+    return "Controller run finished."
+
+
+def outcome_winner_sentence(outcome: str, gemini_passed: int | None = None) -> str:
     if outcome == "evolved_compliant":
-        return f"Winner: a Gemini-written controller. Follows all {n_rules} rules."
+        return "Winner: a Gemini-written controller."
     if outcome == "fallback_b3":
         n = gemini_passed if gemini_passed is not None else 0
         return (
@@ -494,8 +548,28 @@ def outcome_headline(outcome: str, n_rules: int, gemini_passed: int | None = Non
     if outcome == "fallback_conservative_floor":
         return "Fell back to the safe, expensive setting."
     if outcome == "refused":
-        return "GridSafe refused: no controller met the rules."
-    return "Controller run finished."
+        return "No safe controller was found."
+    return ""
+
+
+def controller_author_line(outcome: str) -> str:
+    if outcome == "evolved_compliant":
+        return "Written by Gemini 4 Hydrogen, checked by GridSafe"
+    if outcome == "fallback_b3":
+        return "Tuned filter baseline (no AI), checked by GridSafe"
+    if outcome == "fallback_conservative_floor":
+        return "Safe expensive fallback (no AI), checked by GridSafe"
+    return "Checked by GridSafe"
+
+
+def outcome_headline(outcome: str, n_rules: int, gemini_passed: int | None = None) -> str:
+    verdict = outcome_verdict(outcome, n_rules)
+    winner = outcome_winner_sentence(outcome, gemini_passed)
+    if outcome == "refused":
+        return verdict
+    if winner:
+        return f"{verdict}. {winner}" if not winner.startswith("Fell") else f"{verdict}. {winner}"
+    return verdict
 
 
 def _period_from_attack(body: AttackBody) -> float:
@@ -669,10 +743,19 @@ async def thumbnail(session_id: str, page: int, dpi: int = 72) -> FileResponse:
     if not cache.exists():
         if page in sess.page_images:
             cache.write_bytes(sess.page_images[page])
-        elif sess.pdf_bytes is not None and sess.source_kind == "pdf":
-            png = render_pdf_page_png(sess.pdf_bytes, page, dpi=dpi)
-            cache.write_bytes(png)
-        elif sess.pdf_path and sess.pdf_path.exists() and sess.source_kind == "camera":
+        elif sess.pdf_bytes is not None and page <= (
+            # original PDF page count may be less than page_count after add-image
+            sess.page_count
+        ):
+            try:
+                png = render_pdf_page_png(sess.pdf_bytes, page, dpi=dpi)
+                cache.write_bytes(png)
+            except Exception:
+                if sess.pdf_path and sess.pdf_path.exists():
+                    cache.write_bytes(sess.pdf_path.read_bytes())
+                else:
+                    raise HTTPException(status_code=404, detail="No page image") from None
+        elif sess.pdf_path and sess.pdf_path.exists():
             cache.write_bytes(sess.pdf_path.read_bytes())
         else:
             raise HTTPException(status_code=404, detail="No page image")
@@ -711,73 +794,59 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
 
         all_constraints: list[Constraint] = []
         page_images: dict[int, bytes] = {}
+        camera_pages: set[int] = set()
         reader_model = ""
 
         try:
-            if sess.source_kind == "camera" or (sess.pdf_bytes is None and sess.page_images):
-                for pg in pages:
-                    img = sess.page_images.get(pg)
-                    if img is None and sess.pdf_path:
-                        img = sess.pdf_path.read_bytes()
-                    if img is None:
-                        yield _sse("error", {"message": f"Missing image for page {pg}"})
-                        return
-                    page_images[pg] = img
-                    yield _sse("page_read_start", {"page": pg})
-                    await asyncio.sleep(0)
-                    out = await asyncio.to_thread(
-                        extract_from_image_bytes,
-                        img,
-                        "image/jpeg" if sess.source_name.lower().endswith((".jpg", ".jpeg")) else "image/png",
-                        source_name=sess.source_name,
-                        page_number=pg,
-                        rated_mw=sess.rated_mw,
-                    )
-                    reader_model = out.model
-                    if out.unreadable:
-                        yield _sse(
-                            "page_unreadable",
-                            {"page": pg, "message": "Page unreadable — Needs human review"},
-                        )
-                    for c in out.constraints:
-                        all_constraints.append(c)
-                        payload = {**c.to_dict(), "ui_status": "pending", "phase": "read"}
-                        yield _sse("constraint", payload)
-                        await asyncio.sleep(0)
+            for pg in pages:
+                yield _sse("page_read_start", {"page": pg})
+                await asyncio.sleep(0)
+                # Prefer stored images (camera / appended photo); else render from PDF
+                stored = sess.page_images.get(pg)
+                from_camera = stored is not None or sess.source_kind == "camera"
+                mime = "image/jpeg" if from_camera else "image/png"
+                if stored is not None:
+                    img = stored
+                elif sess.pdf_path and sess.source_kind == "camera":
+                    img = sess.pdf_path.read_bytes()
+                    from_camera = True
+                    mime = "image/jpeg"
+                elif sess.pdf_bytes is not None:
+                    img = await asyncio.to_thread(render_pdf_page_png, sess.pdf_bytes, pg, 150)
+                    mime = "image/png"
+                    from_camera = False
+                else:
+                    yield _sse("error", {"message": f"Missing image for page {pg}"})
+                    return
+                page_images[pg] = img
+                if from_camera:
+                    camera_pages.add(pg)
+
+                out = await asyncio.to_thread(
+                    extract_from_image_bytes,
+                    img,
+                    mime,
+                    source_name=sess.source_name,
+                    page_number=pg,
+                    rated_mw=sess.rated_mw,
+                )
+                reader_model = out.model
+                if out.unreadable:
                     yield _sse(
-                        "page_read_done",
-                        {"page": pg, "count": len(out.constraints), "summary": out.summary},
+                        "page_unreadable",
+                        {"page": pg, "message": "Page unreadable — Needs human review"},
                     )
-            else:
-                # PDF: extract only selected pages as images for precise page control
-                assert sess.pdf_bytes is not None
-                for pg in pages:
-                    yield _sse("page_read_start", {"page": pg})
+                for c in out.constraints:
+                    d0 = c.to_dict()
+                    if from_camera:
+                        d0["source_label"] = "Added by camera"
+                    all_constraints.append(c)
+                    yield _sse("constraint", {**d0, "ui_status": "pending", "phase": "read"})
                     await asyncio.sleep(0)
-                    png = await asyncio.to_thread(render_pdf_page_png, sess.pdf_bytes, pg, 150)
-                    page_images[pg] = png
-                    out = await asyncio.to_thread(
-                        extract_from_image_bytes,
-                        png,
-                        "image/png",
-                        source_name=sess.source_name,
-                        page_number=pg,
-                        rated_mw=sess.rated_mw,
-                    )
-                    reader_model = out.model
-                    if out.unreadable:
-                        yield _sse("page_unreadable", {"page": pg})
-                    for c in out.constraints:
-                        all_constraints.append(c)
-                        yield _sse(
-                            "constraint",
-                            {**c.to_dict(), "ui_status": "pending", "phase": "read"},
-                        )
-                        await asyncio.sleep(0)
-                    yield _sse(
-                        "page_read_done",
-                        {"page": pg, "count": len(out.constraints), "summary": out.summary},
-                    )
+                yield _sse(
+                    "page_read_done",
+                    {"page": pg, "count": len(out.constraints), "summary": out.summary},
+                )
 
             sess.reader_model = reader_model
             yield _sse(
@@ -827,14 +896,40 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
                 yield _sse("constraint", d)
                 await asyncio.sleep(0)
 
-            sess.constraints = out_constraints
+            append = bool(body.append) if body is not None else False
+            for d in out_constraints:
+                entity = str(d.get("entity") or "").strip()
+                page = d.get("page")
+                if page in camera_pages or sess.source_kind == "camera":
+                    d["source_label"] = "Added by camera"
+                elif entity and page is not None:
+                    d["source_label"] = f"{entity}, page {page}"
+                elif page is not None:
+                    d["source_label"] = f"page {page}"
+                else:
+                    d["source_label"] = sess.source_name or "rulebook"
+
+            if append and sess.constraints:
+                by_id = {str(c.get("id")): c for c in sess.constraints if c.get("id")}
+                for d in out_constraints:
+                    by_id[str(d.get("id"))] = d
+                sess.constraints = list(by_id.values())
+            else:
+                sess.constraints = out_constraints
+            # Changing rules invalidates a prior controller
+            if append:
+                sess.controller_code = None
+                sess.evolve_result = None
+                sess.traces = None
+                sess.certificate = None
             yield _sse(
                 "verify_complete",
                 {
                     "verification": report.to_dict(),
-                    "constraints": out_constraints,
+                    "constraints": sess.constraints,
                     "reader_model": reader_model,
                     "verifier_model": report.verifier_model,
+                    "append": append,
                 },
             )
             yield _sse("done", {"ok": True})
@@ -843,6 +938,56 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
             yield _sse("done", {"ok": False})
 
     return _sse_response(gen())
+
+
+@ui_router.post("/session/{session_id}/add-image")
+async def add_image_page(
+    session_id: str,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Append a camera photo (or page image) as a new page on an existing session."""
+    sess = _get_session(session_id)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty image")
+    page = int(sess.page_count) + 1
+    sess.page_images[page] = data
+    sess.page_count = page
+    sess.selected_pages = [page]
+    # Mark so Reader tags source_label as camera-added
+    if sess.source_kind != "camera":
+        sess.source_kind = "mixed"
+    mime = file.content_type or "image/jpeg"
+    ext = ".jpg" if "jpeg" in mime or "jpg" in mime else ".png"
+    dest = UPLOAD_DIR / f"{session_id}_added_p{page}{ext}"
+    dest.write_bytes(data)
+    return {
+        "session_id": session_id,
+        "page": page,
+        "page_count": sess.page_count,
+        "source_label": "Added by camera",
+        "thumbnail_url": f"/api/ui/session/{session_id}/thumbnail/{page}",
+    }
+
+
+@ui_router.post("/session/{session_id}/remove-constraint")
+async def remove_constraint(session_id: str, body: RemoveConstraintBody) -> dict[str, Any]:
+    sess = _get_session(session_id)
+    before = len(sess.constraints)
+    cid = str(body.constraint_id)
+    sess.constraints = [c for c in sess.constraints if str(c.get("id")) != cid]
+    removed = before - len(sess.constraints)
+    if removed:
+        sess.controller_code = None
+        sess.evolve_result = None
+        sess.traces = None
+        sess.certificate = None
+    return {
+        "session_id": session_id,
+        "removed": removed,
+        "constraints": sess.constraints,
+        "n_rules": len(sess.constraints),
+    }
 
 
 @ui_router.post("/session/{session_id}/evolve")
@@ -973,6 +1118,9 @@ async def evolve_stream(session_id: str, body: EvolveBody | None = None) -> Stre
                 "outcome": result.outcome,
                 "passed": result.passed,
                 "headline": outcome_headline(result.outcome, n_rules, result.total_candidates_passed),
+                "verdict": outcome_verdict(result.outcome, n_rules),
+                "winner": outcome_winner_sentence(result.outcome, result.total_candidates_passed),
+                "author_line": controller_author_line(result.outcome),
                 "n_rules": n_rules,
                 "candidates_tried": result.total_candidates_evaluated,
                 "candidates_passed": result.total_candidates_passed,
@@ -1036,10 +1184,15 @@ def _build_certificate(sess: UISession) -> dict[str, Any]:
             }
         )
 
+    outcome = str(ev.get("outcome") or "")
     return {
-        "outcome": ev.get("outcome"),
+        "outcome": outcome,
         "passed": ev.get("passed"),
-        "headline": outcome_headline(str(ev.get("outcome") or ""), n_rules or len(rules), gemini_passed),
+        "headline": outcome_headline(outcome, n_rules or len(rules), gemini_passed),
+        "verdict": outcome_verdict(outcome, n_rules or len(rules)),
+        "winner": outcome_winner_sentence(outcome, gemini_passed),
+        "author_line": controller_author_line(outcome),
+        "n_rules": n_rules or len(rules),
         "models": {
             "reader": {"model": sess.reader_model or "gemini-4-neon", "job": "Reads the rulebook pages"},
             "verifier": {
@@ -1344,6 +1497,9 @@ async def fix_attack_stream(session_id: str, body: FixAttackBody) -> StreamingRe
             {
                 "ok": result.passed,
                 "headline": outcome_headline(result.outcome, n_rules, result.total_candidates_passed),
+                "verdict": outcome_verdict(result.outcome, n_rules),
+                "winner": outcome_winner_sentence(result.outcome, result.total_candidates_passed),
+                "author_line": controller_author_line(result.outcome),
                 "outcome": result.outcome,
                 "passed": result.passed,
                 "best_code": result.best_code,
@@ -1425,12 +1581,17 @@ async def replay_load() -> dict[str, Any]:
     )
     with _SESSIONS_LOCK:
         _SESSIONS[session_id] = sess
-    # Rebuild traces if missing/broken and we have a controller
-    if sess.controller_code and sess.traces is None:
+    # Rebuild traces if missing/broken/stale (no rule_bars) and we have a controller
+    needs_traces = sess.controller_code and (
+        sess.traces is None
+        or "error" in (sess.traces or {})
+        or "rule_bars" not in (sess.traces or {})
+    )
+    if needs_traces and sess.controller_code:
         try:
             sess.traces = await asyncio.to_thread(_build_traces, sess, sess.controller_code)
-            if sess.certificate is None:
-                sess.certificate = _build_certificate(sess)
+            # Refresh certificate with verdict/winner/author_line fields
+            sess.certificate = _build_certificate(sess)
         except Exception as exc:
             sess.traces = {"error": str(exc), "label": "simulated"}
     return {

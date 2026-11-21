@@ -26,6 +26,7 @@ export interface ConstraintRow {
   freq_max_hz?: number | null
   source_section?: string
   notes?: string
+  source_label?: string
 }
 
 export interface UploadResponse {
@@ -81,6 +82,36 @@ export async function selectPages(sessionId: string, pages: number[]): Promise<v
       body: JSON.stringify({ pages }),
     }),
   )
+}
+
+export async function addImagePage(sessionId: string, blob: Blob) {
+  const fd = new FormData()
+  fd.append("file", blob, "added.jpg")
+  return parseJson<{ session_id: string; page: number; page_count: number; source_label: string }>(
+    await fetch(`/api/ui/session/${sessionId}/add-image`, { method: "POST", body: fd }),
+  )
+}
+
+export async function removeConstraint(sessionId: string, constraintId: string) {
+  return parseJson<{ constraints: ConstraintRow[]; removed: number }>(
+    await fetch(`/api/ui/session/${sessionId}/remove-constraint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ constraint_id: constraintId }),
+    }),
+  )
+}
+
+export async function fetchAgentTally() {
+  return parseJson<{
+    running: boolean
+    running_since_utc: string | null
+    rounds: number
+    attacks_tried: number
+    breaks_found: number
+    fixes_confirmed: number
+    message: string | null
+  }>(await fetch("/api/agents/tally"))
 }
 
 export async function streamPost(
