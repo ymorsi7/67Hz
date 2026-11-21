@@ -1,0 +1,1 @@
+{"ts_utc": "2026-11-21T18:53:12.944928+00:00", "thread_id": "ui_harden_20261121T185312Z_edf137f5", "event": "message_out", "from": "gridsafe-engineer", "to": "gridsafe-hardener", "round": 1, "payload_keys": ["type", "controller_code", "constraints", "rated_mw", "notes", "controller_bytes"]}

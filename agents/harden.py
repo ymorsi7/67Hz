@@ -20,6 +20,8 @@ from workload.synth import all_preset_workloads
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ATTACKS_DIR = REPO_ROOT / "eval" / "attacks"
 TALLY_PATH = ATTACKS_DIR / "hardening_tally.jsonl"
+STATE_PATH = ATTACKS_DIR / "hardening_state.json"
+PAUSE_FLAG = ATTACKS_DIR / "HARDEN_PAUSE"
 
 
 def _append_tally(row: dict[str, Any]) -> None:
@@ -28,16 +30,57 @@ def _append_tally(row: dict[str, Any]) -> None:
         f.write(json.dumps(row, default=str) + "\n")
 
 
+def _save_state(state: dict[str, Any]) -> None:
+    ATTACKS_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state, indent=2, default=str) + "\n", encoding="utf-8")
+
+
+def _load_state() -> dict[str, Any] | None:
+    if not STATE_PATH.exists():
+        return None
+    return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+
+
+def _wait_if_paused(run_id: str) -> None:
+    """Block while eval/attacks/HARDEN_PAUSE exists (touch to pause, rm to resume)."""
+    announced = False
+    while PAUSE_FLAG.exists():
+        if not announced:
+            print(f"[harden] PAUSED ({PAUSE_FLAG.name} present). Remove the file to resume.", flush=True)
+            _append_tally(
+                {
+                    "ts_utc": datetime.now(timezone.utc).isoformat(),
+                    "event": "hardening_paused",
+                    "run_id": run_id,
+                    "reason": "HARDEN_PAUSE flag present",
+                }
+            )
+            announced = True
+        time.sleep(2.0)
+    if announced:
+        print("[harden] RESUMED", flush=True)
+        _append_tally(
+            {
+                "ts_utc": datetime.now(timezone.utc).isoformat(),
+                "event": "hardening_resumed",
+                "run_id": run_id,
+            }
+        )
+
+
 def run_hardening_loop(
     *,
     profile_ids: list[str] | None = None,
     max_cycles: int = 50,
     sleep_s: float = 2.0,
     seed: int = 20261121,
+    resume: bool = False,
 ) -> None:
     """Attack -> log verified breaks -> coordinate local fix -> timestamped tally.
 
     Leaves running until max_cycles or enable_agents=false / KeyboardInterrupt.
+    Pause: `touch eval/attacks/HARDEN_PAUSE`. Resume: remove that file, or
+    `make harden-resume` to continue from eval/attacks/hardening_state.json after a stop.
     """
     cfg = load_managed_config()
     if not cfg.get("enable_agents", True):
@@ -51,26 +94,64 @@ def run_hardening_loop(
     if not targets:
         raise SystemExit("no hardening targets available")
 
-    run_id = f"harden_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
-    bridge = AgentBridge(
-        f"{run_id}_thread",
-        meta={"kind": "hardening_run", "targets": targets},
-        use_saved_agents=True,
-    )
-    print(f"[harden] start {run_id} targets={targets}")
-    _append_tally(
-        {
-            "ts_utc": datetime.now(timezone.utc).isoformat(),
-            "event": "hardening_start",
-            "run_id": run_id,
-            "targets": targets,
-        }
-    )
-
     cycle = 0
     breaks_verified = 0
     fixes_applied = 0
+    prev_state = _load_state() if resume else None
+    if resume and prev_state:
+        run_id = str(prev_state.get("run_id") or f"harden_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}")
+        cycle = int(prev_state.get("cycle") or 0)
+        breaks_verified = int(prev_state.get("breaks_verified") or 0)
+        fixes_applied = int(prev_state.get("fixes_applied") or 0)
+        targets = list(prev_state.get("targets") or targets)
+        print(
+            f"[harden] RESUME {run_id} from cycle={cycle} "
+            f"breaks={breaks_verified} fixes={fixes_applied} targets={targets}",
+            flush=True,
+        )
+        _append_tally(
+            {
+                "ts_utc": datetime.now(timezone.utc).isoformat(),
+                "event": "hardening_resume_start",
+                "run_id": run_id,
+                "cycle": cycle,
+                "breaks_verified": breaks_verified,
+                "fixes_applied": fixes_applied,
+                "targets": targets,
+            }
+        )
+    else:
+        run_id = f"harden_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        _append_tally(
+            {
+                "ts_utc": datetime.now(timezone.utc).isoformat(),
+                "event": "hardening_start",
+                "run_id": run_id,
+                "targets": targets,
+            }
+        )
+        print(f"[harden] start {run_id} targets={targets}")
+
+    bridge = AgentBridge(
+        f"{run_id}_thread",
+        meta={"kind": "hardening_run", "targets": targets, "resumed": bool(resume and prev_state)},
+        use_saved_agents=True,
+    )
+    _save_state(
+        {
+            "run_id": run_id,
+            "cycle": cycle,
+            "breaks_verified": breaks_verified,
+            "fixes_applied": fixes_applied,
+            "targets": targets,
+            "seed": seed,
+            "max_cycles": max_cycles,
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
     while cycle < max_cycles:
+        _wait_if_paused(run_id)
         cycle += 1
         pid = targets[(cycle - 1) % len(targets)]
         prof = profiles[pid]
@@ -161,7 +242,29 @@ def run_hardening_loop(
                 row["fix"] = {"outcome": evo2.outcome, "passed": False}
 
         row["tally"] = {"cycles": cycle, "breaks_verified": breaks_verified, "fixes_applied": fixes_applied}
+        # Auto-pause after timeouts / rate limits so the operator can resume later.
+        err = str((reply or {}).get("error") or "")
+        if "APITimeoutError" in err or "ReadTimeout" in err or "429" in err or "RESOURCE_EXHAUSTED" in err:
+            row["auto_pause"] = True
+            PAUSE_FLAG.write_text(
+                f"auto-pause after cycle {cycle}: {err[:240]}\nRemove this file (or make harden-resume) to continue.\n",
+                encoding="utf-8",
+            )
+            print(f"[harden] auto-paused after timeout/rate-limit (cycle={cycle})", flush=True)
         _append_tally(row)
+        _save_state(
+            {
+                "run_id": run_id,
+                "cycle": cycle,
+                "breaks_verified": breaks_verified,
+                "fixes_applied": fixes_applied,
+                "targets": targets,
+                "seed": seed,
+                "max_cycles": max_cycles,
+                "last_profile_id": pid,
+                "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         print(
             f"[harden] cycle={cycle} profile={pid} break={row['break_found']} "
             f"breaks_verified={breaks_verified} fixes={fixes_applied}"
@@ -176,6 +279,19 @@ def run_hardening_loop(
             "cycles": cycle,
             "breaks_verified": breaks_verified,
             "fixes_applied": fixes_applied,
+        }
+    )
+    _save_state(
+        {
+            "run_id": run_id,
+            "cycle": cycle,
+            "breaks_verified": breaks_verified,
+            "fixes_applied": fixes_applied,
+            "targets": targets,
+            "seed": seed,
+            "max_cycles": max_cycles,
+            "status": "completed",
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         }
     )
     print(f"[harden] done {run_id}")

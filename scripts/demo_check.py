@@ -61,9 +61,18 @@ def main() -> int:
         print(f"[FAIL] {msg}")
         failures.append(msg)
 
+    # Saved managed agents (engineer + hardener)
     try:
         agents = client.agents.list()
-        print(f"[OK]   managed agents endpoint reachable (saved agents: {len(agents.agents or [])})")
+        saved = list(agents.agents or [])
+        ids = {getattr(a, "id", None) or getattr(a, "name", None) for a in saved}
+        print(f"[OK]   managed agents endpoint reachable (saved agents: {len(saved)})")
+        for need in ("gridsafe-engineer", "gridsafe-hardener"):
+            if need in ids:
+                print(f"[OK]   saved agent reachable: {need}")
+            else:
+                # Still OK if endpoint works; provision may recreate on first job.
+                print(f"[WARN] saved agent not listed yet: {need} (will be created on first job/harden)")
     except Exception as exc:
         msg = f"managed agents endpoint failed: {exc}"
         print(f"[FAIL] {msg}")
@@ -73,7 +82,19 @@ def main() -> int:
     if frontend_index.exists():
         print("[OK]   frontend/dist/index.html built")
     else:
-        print("[WARN] frontend/dist/index.html not built yet (run `make build-ui`)")
+        msg = "frontend/dist/index.html missing (run `make build-ui` or `make demo`)"
+        print(f"[FAIL] {msg}")
+        failures.append(msg)
+
+    replay_latest = REPO_ROOT / "eval" / "tmp" / "replays" / "latest.json"
+    replay_any = list((REPO_ROOT / "eval" / "tmp" / "replays").glob("*.json")) if (REPO_ROOT / "eval" / "tmp" / "replays").exists() else []
+    if replay_latest.exists() or replay_any:
+        which = replay_latest if replay_latest.exists() else replay_any[0]
+        print(f"[OK]   saved replay exists: {which.relative_to(REPO_ROOT)}")
+    else:
+        msg = "no saved replay under eval/tmp/replays/ (run a full flow once and save replay)"
+        print(f"[FAIL] {msg}")
+        failures.append(msg)
 
     if failures:
         print(f"\nDemo check failed with {len(failures)} error(s).")

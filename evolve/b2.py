@@ -53,7 +53,7 @@ def run_b2_baseline(
     t0 = time.perf_counter()
 
     constraint_summary = "\n".join(
-        f"- {c.constraint_id}: {c.type} value={c.value} {c.unit} page={c.page}"
+        f"- {c.id or c.constraint_type}: {c.constraint_type} value={c.value} {c.unit} page={c.page}"
         for c in ruleset.constraints
         if c.checkable
     )

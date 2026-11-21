@@ -8,85 +8,56 @@ Fresh-agent briefing for `/Users/yusufmorsi/Documents/GitHub/67Hz` (public repo 
 - **Never leak secrets into sandboxes.** No `GEMINI_API_KEY` in evolve runners or Antigravity sandboxes.
 - **Sandbox package boundary:** `workload/`, `sim/`, `rules/`, `controllers/`, `evolve/` = pure Python + numpy only.
 - **Held-out profiles** run only in `make eval-final`.
-- **Do not edit** `frontend/`, `server/ui_api.py`, or `server/ui_dev.py` while the parallel UI agent owns them (Phase 4b).
+- **Do not edit** `frontend/`, `server/ui_api.py`, or `server/ui_dev.py` while the parallel UI agent owns them (unless that ownership ends).
 
 ## 2. Phase Status
-- **Phases 0–4 + Part A:** Done (committed earlier as Phase 4 + Part A).
-- **Phase 4b (this turn):**
-  - **Part 1:** `server/app.py` mounts `ui_router` from `server/ui_api.py` (single-port `make run`).
-  - **Part 2:** `server/agent_api.py` mounted — see **Agent API for the UI** below.
-  - **Part 3:** Frequency-band aggregations (`peak_bin` / `adjacent_pair_sum` / `band_sum`), `fft_window_s`, `averaging_window_s`; `band_long` family (120 s @ 0.01 s); Reader+Verifier re-run on native LIPA PDF; **F15**.
-  - **Part 4:** README “How the managed agents are used”; LIPA seed 101 no longer lands on 41% floor (see below).
-- **Phases 5–7:** UI polish / Break-the-grid / RESULTS.md still open on the UI agent’s side.
+- **Phases 0–4 + 4b:** Done (band aggregations, LIPA `lipa_pseg`, agent API, UI mount).
+- **Phase 7 wrap-up (this turn):** Final evidence + demo safety — **done**.
+  - `make eval-final SEED=20261121`: **42.32 s** (`eval/results/eval_final_timing.json`).
+  - B2 stock Antigravity: **11/11 profiles in 296.6 s** (8‑min budget); host-scored **0 passes** (`eval/results/b2_budget_20261121.json`).
+  - Extraction re-score vs 6 gold: P=0.679 R=1.000 H=0.321 A=0.034.
+  - `make eval-live`, `make report` → `RESULTS.md`, `docs/NUMBERS.md`, README rebuilt.
+  - Hardening: **timeouts yes** (14 attack files with `APITimeoutError`); pause/resume added (`make harden-pause` / `make harden-resume`, flag `eval/attacks/HARDEN_PAUSE`, state `eval/attacks/hardening_state.json`).
+  - `make demo` (no reload), `make demo-check` **passed**; clean LIPA replay at `eval/tmp/replays/latest.json`.
+- **Still UI-agent side:** Phase 5–6 polish / Break-the-grid UX if not finished.
 
-### LIPA band evaluation — before vs after (Part 3)
-**Before (CAISO-straw `lipa` profile, peak_bin only):**
-- Rules: `0.1–5 Hz < 10 MW` and `5–55 Hz < 3.5 MW`, `window_s=None`, aggregation=`peak_bin`.
-- Judged on **fast** family: **20 s @ 0.002 s** (Nyquist 250 Hz, Δf=0.05 Hz). That *can* represent 1–5 Hz content, but every aggregation type received the same peak-bin number; a true 60 s averaging window was never enforced.
+### Headline unflattering facts (quote from RESULTS.md)
+- GridSafe presets **33/33** — **same as no-AI B3 33/33**.
+- Random suite: GridSafe **9/11** all-pass; B0 **11/11**; B3 **9/11** (`lipa`/`lipa_pseg` GridSafe 19/20).
+- B2 stock agent: **0/11** host-scored passes in the 8‑minute budget.
+- Hardener: many **90 s client timeouts**; use pause/resume.
 
-**After (native `lipa_pseg` from re-read PDF):**
-- `ramp_rate` 20 MW/min / 60 s; `5–55 Hz` adjacent_pair_sum ≤ 3.5 MW (10 s avg, 1 s FFT); `0.1–5 Hz` adjacent_pair_sum ≤ 10 MW (60 s avg, 10 s FFT); `0.1–5 Hz` band_sum ≤ 20 MW.
-- Fast 20 s: 60 s-window rules → `not_evaluable`. New **`band_long`** (120 s @ 0.01 s) evaluates them.
-- Fresh preset runs (`lipa_pseg`): Noop **FAIL**, B1 **FAIL**, B3 seed101 **PASS** OH **3.38%**, GS seed101 **`evolved_compliant`** OH **3.48%** (was conservative floor 41.4% on old `lipa` seed101). Old CAISO-straw `lipa` profile still present with peak_bin-only bands.
-
-## 3. Repo Map (Phase 4b additions)
-- `server/app.py` — mounts `ui_router` + `agent_router`
-- `server/agent_api.py` — harden SSE, tally, threads
-- `rules/schema.py` / `rules/checker.py` — band aggregations
-- `workload/synth.py` — `band_long_preset_workloads`
-- `README.md` — managed-agent sandbox vs backend table
+## 3. Repo Map (Phase 7 wrap-up additions)
+- `Makefile` — `eval-live`, `report`, `demo`, `b2-budget`, `harden-pause`, `harden-resume`
+- `scripts/build_final_results.py` — writes `eval/results/final_<seed>.json`
+- `scripts/report.py` — writes `RESULTS.md` from saved JSON only
+- `scripts/eval_live.py` — judge-picked seed, <60 s pass table
+- `scripts/run_b2_budget.py` — B2 within wall-clock budget
+- `agents/harden.py` — pause flag + resume state
+- `docs/NUMBERS.md` — 12 quoteable numbers with provenance
+- `eval/results/` — final / B2 / live / timing artifacts
 
 ## 4. Agent API for the UI (`server/agent_api.py`, mounted from `server/app.py`)
 
-`make run` serves UI + agents on one port. Never invents agent messages.
+Unchanged from Phase 4b. `make run` / `make demo` serve UI + agents on one port. Never invents agent messages.
 
-### `POST /api/agents/harden` (SSE)
-Request JSON:
-```json
-{
-  "controller_code": "def control(obs): ...",
-  "constraints": [{"id":"...","constraint_type":"fluctuation_band","value":10.0,"unit":"MW","page":12,"snippet":"...","checkable":true,"freq_min_hz":0.1,"freq_max_hz":5.0}],
-  "rated_mw": 100.0,
-  "notes": "optional",
-  "profile_id": "lipa"
-}
-```
-SSE events (`event:` / `data:`):
-- `status` — `{ok, message, thread_id?}` (agents off / errors said in plain words)
-- `agent_message` — `{sender, receiver, summary, payload, latency_s?}` (engineer↔hardener; `summary` is one plain line; `payload` is full JSON)
-- `backend_check` — `{kind: "counterexample"|"fix"|"host_rand20_probe", summary, break_found?|passed?, detail}`
-- `verdict` — `{verdict: "no_break_within_budget"|"break_found_and_fixed"|"break_found_not_fixed"|"agents_disabled"|"unavailable", message, thread_id?, fixed_controller_code?}`
-- `ping` — keepalive `{t}`
-
-### `GET /api/agents/tally`
-```json
-{
-  "running": true,
-  "running_since_utc": "...",
-  "run_id": "harden_...",
-  "rounds": 2,
-  "attacks_tried": 2,
-  "breaks_found": 0,
-  "fixes_confirmed": 0,
-  "last_event_utc": "...",
-  "targets": ["lipa","southern_dev"],
-  "message": null
-}
-```
-
-### `GET /api/agents/threads`
-`{ "threads": [{thread_id, created_at_utc, kind, n_events, meta}], "count": N }`
-
-### `GET /api/agents/threads/{id}`
-`{ "thread_id", "meta", "events": [...], "summary": {...}|null }`
+### Key endpoints
+- `POST /api/agents/harden` (SSE) — engineer↔hardener bridge
+- `GET /api/agents/tally` — hardening counters
+- `GET /api/agents/threads` / `.../{id}` — logged threads
 
 ## 5. Common Commands
 - `make test` / `make eval` / `make eval-final SEED=20261121`
-- `make run` — UI + agent API + frontend
-- `make agent-job PROFILE=lipa` / `make harden`
-- `.venv/bin/python -u scripts/run_specs_reader.py --new-only`
+- `make eval-live SEED=<n>` — fresh 20-workload table from cached controllers
+- `make report` — regenerate `RESULTS.md`
+- `make demo` — build UI, serve port 8000 **without** reload
+- `make demo-check` — key, models, Decisions API, both agents, replay, UI build
+- `make harden` / `make harden-pause` / `make harden-resume`
+- `make b2-budget` — stock Antigravity baseline under 8 minutes
 
 ## 6. Gotchas
-- Saved-agent first turn needs `environment="remote"`. Follow-up `tools` must match `previous_interaction_id`.
 - Prefer native profile id **`lipa_pseg`** for Table 4-2 aggregations; **`lipa`** is still the CAISO-straw restatement (peak_bin).
 - `band_long` Nyquist is 50 Hz — enough for 0.1–5 Hz; 5–55 Hz is only partially covered there (fast family still carries high band).
+- Hardener turns often hit **90 s `APITimeoutError`**; host falls back to Rand20; pause with `HARDEN_PAUSE` rather than hammering the API.
+- `make eval-final` now also runs `build_final_results.py` (random-suite re-score ~40 s extra).
+- Do not touch `frontend/` / `server/ui_api.py` / `server/ui_dev.py` if the UI agent is still active.

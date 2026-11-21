@@ -1,0 +1,593 @@
+{
+  "schema_version": "eval_live_v1",
+  "run_at_utc": "2026-11-21T18:58:48.801013+00:00",
+  "seed": 20261121,
+  "n": 20,
+  "split": "all",
+  "elapsed_s": 41.767,
+  "rows": [
+    {
+      "profile_id": "aeso",
+      "split": "dev",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -808.2765054074748
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 45.251,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -770.6
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 5.156,
+          "mean_throughput_loss_pct": 3.305,
+          "worst_margin_pct": 4.000000000001558
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 5.322,
+          "mean_throughput_loss_pct": 1.408,
+          "worst_margin_pct": 21.668199999996162
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.491,
+          "mean_throughput_loss_pct": 2.267,
+          "worst_margin_pct": 0.9999999999999065
+        }
+      }
+    },
+    {
+      "profile_id": "atc",
+      "split": "dev",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -6980863.625232206
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 49.902,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -7954900.0
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.176,
+          "mean_throughput_loss_pct": 15.575,
+          "worst_margin_pct": 3.9999999993710844
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.159,
+          "mean_throughput_loss_pct": 15.506,
+          "worst_margin_pct": 3.684999998887406
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.222,
+          "mean_throughput_loss_pct": 15.16,
+          "worst_margin_pct": 0.3999999992231551
+        }
+      }
+    },
+    {
+      "profile_id": "caiso",
+      "split": "dev",
+      "cells": {
+        "Noop": "PASS 20/20",
+        "B1": "PASS 20/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": 54.57020261146829
+        },
+        "B1": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 45.251,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": 55.985
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 4.346,
+          "mean_throughput_loss_pct": 1.715,
+          "worst_margin_pct": 55.2977787988137
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 1.163,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": 56.91071145389762
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": 54.57020261146829
+        }
+      }
+    },
+    {
+      "profile_id": "ercot",
+      "split": "dev",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -849.1365929496301
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 49.902,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -795.5
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.524,
+          "mean_throughput_loss_pct": 16.215,
+          "worst_margin_pct": 2.4999999999978595
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.651,
+          "mean_throughput_loss_pct": 15.512,
+          "worst_margin_pct": 12.193300000000567
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.648,
+          "mean_throughput_loss_pct": 10.236,
+          "worst_margin_pct": 2.499999999999929
+        }
+      }
+    },
+    {
+      "profile_id": "lipa",
+      "split": "dev",
+      "cells": {
+        "Noop": "FAIL 10/20",
+        "B1": "PASS 20/20",
+        "B0": "PASS 20/20",
+        "B3": "FAIL 14/20",
+        "GridSafe": "FAIL 19/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 10,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -253.6569870592889
+        },
+        "B1": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 49.902,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": 31.920428262428835
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.458,
+          "mean_throughput_loss_pct": 12.375,
+          "worst_margin_pct": 52.54775440418824
+        },
+        "B3": {
+          "passed": false,
+          "workloads_passed": 14,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 1.117,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -48.21026897124977
+        },
+        "GridSafe": {
+          "passed": false,
+          "workloads_passed": 19,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.111,
+          "mean_throughput_loss_pct": 7.321,
+          "worst_margin_pct": -15.817773407937938
+        }
+      }
+    },
+    {
+      "profile_id": "lipa_pseg",
+      "split": "dev",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 3/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "FAIL 19/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -983.1828764363618
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 3,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 49.902,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -323.55
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.605,
+          "mean_throughput_loss_pct": 16.121,
+          "worst_margin_pct": 2.499999999998992
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.651,
+          "mean_throughput_loss_pct": 15.512,
+          "worst_margin_pct": 12.193300000000567
+        },
+        "GridSafe": {
+          "passed": false,
+          "workloads_passed": 19,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.787,
+          "mean_throughput_loss_pct": 9.972,
+          "worst_margin_pct": -6.565454699231843
+        }
+      }
+    },
+    {
+      "profile_id": "southern_dev",
+      "split": "dev",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -849.1365929496301
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 49.902,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -795.5
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.666,
+          "mean_throughput_loss_pct": 16.158,
+          "worst_margin_pct": 2.499999999997826
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.651,
+          "mean_throughput_loss_pct": 15.512,
+          "worst_margin_pct": 12.193300000000567
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.772,
+          "mean_throughput_loss_pct": 10.508,
+          "worst_margin_pct": 0.4798179236506428
+        }
+      }
+    },
+    {
+      "profile_id": "ieso_held_out",
+      "split": "held_out",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -4851.1978188300445
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 49.902,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -853.1140043259963
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.734,
+          "mean_throughput_loss_pct": 16.413,
+          "worst_margin_pct": 4.9999999999988995
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.651,
+          "mean_throughput_loss_pct": 15.512,
+          "worst_margin_pct": 12.193300000000567
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.121,
+          "mean_throughput_loss_pct": 9.479,
+          "worst_margin_pct": 0.4999999999999616
+        }
+      }
+    },
+    {
+      "profile_id": "miso_held_out",
+      "split": "held_out",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "FAIL 19/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -202.75883513582494
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 45.251,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -190.20000000000002
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 3.647,
+          "mean_throughput_loss_pct": 1.344,
+          "worst_margin_pct": 0.9999999999990683
+        },
+        "B3": {
+          "passed": false,
+          "workloads_passed": 19,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 4.389,
+          "mean_throughput_loss_pct": 0.338,
+          "worst_margin_pct": -3.5222442601515525
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 1.387,
+          "mean_throughput_loss_pct": 0.642,
+          "worst_margin_pct": 0.49999999999996714
+        }
+      }
+    },
+    {
+      "profile_id": "southern_held_out",
+      "split": "held_out",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -354.1382527037374
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 45.251,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -335.30000000000007
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 4.075,
+          "mean_throughput_loss_pct": 1.977,
+          "worst_margin_pct": 2.4999999999977263
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 4.576,
+          "mean_throughput_loss_pct": 0.579,
+          "worst_margin_pct": 12.193300000000018
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.421,
+          "mean_throughput_loss_pct": 0.373,
+          "worst_margin_pct": 0.9999999999999398
+        }
+      }
+    },
+    {
+      "profile_id": "spp_held_out",
+      "split": "held_out",
+      "cells": {
+        "Noop": "FAIL 0/20",
+        "B1": "FAIL 0/20",
+        "B0": "PASS 20/20",
+        "B3": "PASS 20/20",
+        "GridSafe": "PASS 20/20"
+      },
+      "detail": {
+        "Noop": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 0.0,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -354.1382527037374
+        },
+        "B1": {
+          "passed": false,
+          "workloads_passed": 0,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 45.251,
+          "mean_throughput_loss_pct": 0.0,
+          "worst_margin_pct": -335.30000000000007
+        },
+        "B0": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 4.009,
+          "mean_throughput_loss_pct": 2.02,
+          "worst_margin_pct": 1.9999999999995965
+        },
+        "B3": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 4.576,
+          "mean_throughput_loss_pct": 0.579,
+          "worst_margin_pct": 12.193300000000018
+        },
+        "GridSafe": {
+          "passed": true,
+          "workloads_passed": 20,
+          "workloads_evaluable": 20,
+          "mean_energy_overhead_pct": 2.071,
+          "mean_throughput_loss_pct": 1.069,
+          "worst_margin_pct": 0.4999999999999616
+        }
+      }
+    }
+  ]
+}

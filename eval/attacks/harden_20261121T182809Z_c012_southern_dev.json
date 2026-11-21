@@ -1,0 +1,21 @@
+{
+  "reply": {
+    "ok": false,
+    "from": "gridsafe-hardener",
+    "to": "gridsafe-engineer",
+    "round": 12,
+    "latency_s": 90.043,
+    "error": "APITimeoutError: Request timed out. This is a client-side timeout. You can increase the timeout by setting the `timeout` argument on your request or in the client http options.",
+    "reply": {
+      "status": "no_break_within_budget",
+      "notes": "hardener timed out; host will verify independently",
+      "counterexamples": []
+    }
+  },
+  "check": {
+    "break_found": false,
+    "verified_breaks": [],
+    "source": "host_random_suite"
+  },
+  "controller_code": "import math\n\nTAU_S = 0.10\nSLEW_MW_S = 0.325\nSOC_KP = 0.35\nSOC_TARGET = 0.50\nPRELOAD_MW = 20.0\n\ndef control(obs: dict) -> dict[str, float]:\n    p_raw = float(obs[\"p_raw_mw\"])\n    rated = float(obs[\"rated_mw\"])\n    dt = float(obs[\"dt\"])\n    soc = float(obs[\"soc\"])\n    b_max = float(obs[\"battery_max_power_mw\"])\n    cap = float(obs[\"battery_capacity_mwh\"])\n    e = float(obs[\"battery_energy_mwh\"])\n    idle = float(obs.get(\"idle_mw\", obs[\"p_prev_grid_mw\"]))\n    st = obs[\"state\"]\n\n    if \"y1\" not in st:\n        st[\"y1\"] = idle\n        st[\"y2\"] = idle\n        st[\"pg\"] = idle\n\n    preload = PRELOAD_MW if (p_raw <= idle + 2.0 and soc < 0.85) else 0.0\n    soc_bias = SOC_KP * (SOC_TARGET - soc) * b_max\n    desired_in = min(rated, max(0.0, p_raw + preload + soc_bias))\n\n    alpha = dt / (TAU_S + dt)\n    st[\"y1\"] = (1.0 - alpha) * st[\"y1\"] + alpha * desired_in\n    st[\"y2\"] = (1.0 - alpha) * st[\"y2\"] + alpha * st[\"y1\"]\n\n    max_d = SLEW_MW_S * dt\n    p_target = st[\"pg\"] + max(-max_d, min(max_d, st[\"y2\"] - st[\"pg\"]))\n    p_target = min(rated, max(0.0, p_target))\n    st[\"pg\"] = p_target\n\n    dt_h = dt / 3600.0\n    eta = math.sqrt(0.90)\n    b_dis_max = min(b_max, max(0.0, (e - 0.1 * cap) * eta / dt_h))\n    b_chg_max = min(b_max, max(0.0, (0.9 * cap - e) / (eta * dt_h)))\n\n    if p_target < p_raw - b_dis_max:\n        return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": p_target + b_dis_max, \"battery_setpoint_mw\": b_dis_max}\n    if p_target > p_raw + b_chg_max:\n        return {\"gpu_floor_mw\": p_target - b_chg_max, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": -b_chg_max}\n    return {\"gpu_floor_mw\": 0.0, \"gpu_cap_mw\": rated, \"battery_setpoint_mw\": p_raw - p_target}\n"
+}

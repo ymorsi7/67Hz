@@ -18,11 +18,21 @@ def main() -> int:
     p.add_argument("--profiles", nargs="+", default=["lipa", "southern_dev"])
     p.add_argument("--max-cycles", type=int, default=50)
     p.add_argument("--seed", type=int, default=20261121)
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue from eval/attacks/hardening_state.json (after pause/interrupt/timeout)",
+    )
     args = p.parse_args()
     try:
-        run_hardening_loop(profile_ids=args.profiles, max_cycles=args.max_cycles, seed=args.seed)
+        run_hardening_loop(
+            profile_ids=args.profiles,
+            max_cycles=args.max_cycles,
+            seed=args.seed,
+            resume=args.resume,
+        )
     except KeyboardInterrupt:
-        print("[harden] interrupted")
+        print("[harden] interrupted — state saved; resume with: make harden-resume")
     return 0
 
 
