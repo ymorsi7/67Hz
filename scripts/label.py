@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,10 +25,29 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from rules.schema import Constraint, ConstraintType
+from rules.schema import CHECKABLE_CONSTRAINT_TYPES, Constraint, ConstraintType
 
 CACHE_DIR = REPO_ROOT / "eval" / "cache" / "extractions"
 GOLD_DIR = REPO_ROOT / "eval" / "gold"
+
+_CONFLICT_NOTE_RE = re.compile(r"\s*\[CONFLICT[^\]]*\]", flags=re.IGNORECASE)
+
+
+def strip_conflict_notes(notes: str) -> str:
+    """Remove auto-generated [CONFLICT: ...] annotations before saving gold labels."""
+    cleaned = _CONFLICT_NOTE_RE.sub("", notes or "")
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+def filter_candidates(candidates: list[dict[str, Any]], checkable_only: bool) -> list[dict[str, Any]]:
+    """Filter candidate constraints to checkable types when --checkable-only is set."""
+    if not checkable_only:
+        return list(candidates)
+    return [
+        c
+        for c in candidates
+        if str(c.get("constraint_type", "")).strip().lower() in CHECKABLE_CONSTRAINT_TYPES
+    ]
 
 
 def _prompt_optional_float(label: str, current: float | None) -> float | None:
@@ -70,7 +90,7 @@ def _edit_constraint(c: dict[str, Any]) -> dict[str, Any]:
     freq_min_hz = _prompt_optional_float("freq_min_hz", c.get("freq_min_hz"))
     freq_max_hz = _prompt_optional_float("freq_max_hz", c.get("freq_max_hz"))
     source_section = _prompt_str("source_section", str(c.get("source_section", "")))
-    notes = _prompt_str("notes", str(c.get("notes", "")))
+    notes = strip_conflict_notes(_prompt_str("notes", strip_conflict_notes(str(c.get("notes", "")))))
 
     validated = Constraint(
         id=str(c.get("id", "")),
@@ -117,6 +137,11 @@ def main() -> int:
     )
     parser.add_argument("--split", choices=["dev", "held_out"], default="dev")
     parser.add_argument("--rated-mw", type=float, default=100.0)
+    parser.add_argument(
+        "--checkable-only",
+        action="store_true",
+        help="Show only checkable-type candidates (ramp_rate, max_step, fluctuation_band, dynamic_range), then manual additions",
+    )
     args = parser.parse_args()
 
     if args.candidate_json:
@@ -135,9 +160,16 @@ def main() -> int:
     data = json.loads(cand_path.read_text(encoding="utf-8"))
     doc_id = cand_path.stem
     source_file = data.get("source_file", f"specs/{data.get('source_name', doc_id + '.pdf')}")
-    candidates: list[dict[str, Any]] = data.get("constraints", [])
+    all_candidates: list[dict[str, Any]] = data.get("constraints", [])
+    candidates = filter_candidates(all_candidates, checkable_only=args.checkable_only)
 
-    print(f"\n=== Labeling {doc_id} ({len(candidates)} candidate constraint(s)) ===")
+    if args.checkable_only:
+        print(
+            f"\n=== Labeling {doc_id} ({len(candidates)} checkable-type candidate(s) "
+            f"out of {len(all_candidates)} total) ==="
+        )
+    else:
+        print(f"\n=== Labeling {doc_id} ({len(candidates)} candidate constraint(s)) ===")
     accepted: list[dict[str, Any]] = []
 
     for idx, c in enumerate(candidates, start=1):
@@ -145,8 +177,9 @@ def main() -> int:
         print(f"  value={c.get('value')} {c.get('unit')} | checkable={c.get('checkable')} | section={c.get('source_section')!r}")
         print(f"  verifier: verified={c.get('verified')} | conf={c.get('confidence')} | review={c.get('needs_human_review')}")
         print(f"  snippet: \"{c.get('snippet')}\"")
-        if c.get("notes"):
-            print(f"  notes: {c.get('notes')}")
+        clean_notes = strip_conflict_notes(str(c.get("notes", "")))
+        if clean_notes:
+            print(f"  notes: {clean_notes}")
 
         while True:
             cmd = input("Action [a=accept, e=edit, r=reject, s=stop reviewing]: ").strip().lower()
@@ -175,7 +208,7 @@ def main() -> int:
             break
         accepted.append(_add_manual_constraint(len(accepted)))
 
-    # Re-index cleanly and strip model-side confidence/verified fields from gold truth
+    # Re-index cleanly and strip model-side confidence/verified fields and [CONFLICT] notes from gold truth
     gold_constraints: list[dict[str, Any]] = []
     for idx, c in enumerate(accepted):
         entry = {
@@ -190,7 +223,7 @@ def main() -> int:
             "freq_min_hz": c.get("freq_min_hz"),
             "freq_max_hz": c.get("freq_max_hz"),
             "source_section": c.get("source_section", ""),
-            "notes": c.get("notes", ""),
+            "notes": strip_conflict_notes(str(c.get("notes", ""))),
         }
         gold_constraints.append(entry)
 
