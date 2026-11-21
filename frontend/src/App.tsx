@@ -26,6 +26,7 @@ import {
   confirmConstraint,
   fetchAgentTally,
   fetchDocsResults,
+  fetchFeaturedAgentThread,
   fetchHealth,
   loadReplaySession,
   removeConstraint,
@@ -35,6 +36,7 @@ import {
   uploadCamera,
   uploadPdf,
   type ConstraintRow,
+  type FeaturedAgentThread,
   type HealthResponse,
 } from "@/lib/api"
 
@@ -140,8 +142,11 @@ export function App() {
   >([])
   const [agentVerdict, setAgentVerdict] = useState<string | null>(null)
   const [agentBusy, setAgentBusy] = useState(false)
+  const [agentHeartbeat, setAgentHeartbeat] = useState<string | null>(null)
+  const [agentLive, setAgentLive] = useState(false)
   const [agentError, setAgentError] = useState<string | null>(null)
   const [agentJsonOpen, setAgentJsonOpen] = useState<Record<number, boolean>>({})
+  const [recordedAgent, setRecordedAgent] = useState<FeaturedAgentThread | null>(null)
   const [agentTally, setAgentTally] = useState<{
     running: boolean
     running_since_utc: string | null
@@ -151,18 +156,83 @@ export function App() {
     message: string | null
   } | null>(null)
   const [addRuleBusy, setAddRuleBusy] = useState(false)
+  const [busyElapsed, setBusyElapsed] = useState(0)
+  const [busyLine, setBusyLine] = useState("")
+  const [explainerExists, setExplainerExists] = useState(false)
+  const [explainerOpen, setExplainerOpen] = useState(false)
   const addFileRef = useRef<HTMLInputElement>(null)
   const addCamInputRef = useRef<HTMLInputElement>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  const explainerRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const attackTimer = useRef<number | null>(null)
   const attackStart = useRef<number>(0)
+  const busyStartedAt = useRef<number | null>(null)
 
   useEffect(() => {
     fetchHealth().then(setHealth).catch(() => setHealth(null))
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/explainer.mp4", { method: "HEAD" })
+      .then((res) => {
+        if (!cancelled) setExplainerExists(res.ok)
+      })
+      .catch(() => {
+        if (!cancelled) setExplainerExists(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tone !== "busy") {
+      busyStartedAt.current = null
+      setBusyElapsed(0)
+      return
+    }
+    if (busyStartedAt.current == null) busyStartedAt.current = performance.now()
+    const id = window.setInterval(() => {
+      const start = busyStartedAt.current
+      if (start == null) return
+      setBusyElapsed(Math.floor((performance.now() - start) / 1000))
+    }, 250)
+    return () => window.clearInterval(id)
+  }, [tone])
+
+  const startBusy = useCallback((line: string) => {
+    busyStartedAt.current = performance.now()
+    setBusyElapsed(0)
+    setBusyLine(line)
+    setTone("busy")
+  }, [])
+
+  const openExplainer = useCallback(() => {
+    if (!explainerExists) return
+    setExplainerOpen(true)
+    setStep("Rulebook")
+    requestAnimationFrame(() => {
+      const v = explainerRef.current
+      if (!v) return
+      v.currentTime = 0
+      v.muted = true
+      void v.play().catch(() => undefined)
+    })
+  }, [explainerExists])
+
+  const closeExplainer = useCallback(() => {
+    const v = explainerRef.current
+    if (v) {
+      v.pause()
+      v.currentTime = 0
+    }
+    setExplainerOpen(false)
+    setStep("Rulebook")
   }, [])
 
   const markDone = useCallback((s: StepId) => {
@@ -219,7 +289,12 @@ export function App() {
     setAgentVerdict(null)
     setAgentError(null)
     setAgentBusy(false)
+    setAgentHeartbeat(null)
+    setAgentLive(false)
     setAgentTally(null)
+    setBusyLine("")
+    setBusyElapsed(0)
+    setExplainerOpen(false)
   }, [captureUrl])
 
   const openCamera = async () => {
@@ -272,7 +347,7 @@ export function App() {
 
   const usePhoto = async () => {
     if (!captureBlob) return
-    setTone("busy")
+    startBusy("Uploading photo…")
     setStatusMsg("Uploading photo…")
     try {
       const res = await uploadCamera(captureBlob)
@@ -283,6 +358,7 @@ export function App() {
       setSelectedPages([1])
       markDone("Rulebook")
       setTone("ok")
+      setBusyLine("")
       setStatusMsg("Photo ready")
       setStep("Rules")
       // Auto-run read+verify for single camera page
@@ -290,12 +366,13 @@ export function App() {
     } catch (err) {
       setError(String(err))
       setTone("error")
+      setBusyLine("")
     }
   }
 
   const onUpload = async (file: File) => {
     setError(null)
-    setTone("busy")
+    startBusy("Uploading PDF…")
     setStatusMsg("Uploading PDF…")
     stopCamera()
     try {
@@ -307,9 +384,11 @@ export function App() {
       setSelectedPages([])
       setStatusMsg("Pick the pages to read")
       setTone("ok")
+      setBusyLine("")
     } catch (err) {
       setError(String(err))
       setTone("error")
+      setBusyLine("")
     }
   }
 
@@ -326,16 +405,20 @@ export function App() {
     abortRef.current = ac
     setConstraints([])
     setError(null)
-    setTone("busy")
     setStep("Rules")
-    setStatusMsg("Reading the pages…")
+    startBusy("Gemini 4 Neon is reading the pages")
+    setStatusMsg("Gemini 4 Neon is reading the pages")
     try {
       await selectPages(id, pgs)
       await streamPost(
         `/api/ui/session/${id}/read-verify`,
         { pages: pgs },
         {
-          status: (d) => setStatusMsg(String(d.message ?? "")),
+          status: (d) => {
+            const msg = String(d.message ?? "")
+            setStatusMsg(msg)
+            setBusyLine(msg)
+          },
           constraint: (d) => {
             const row = d as unknown as ConstraintRow
             setConstraints((prev) => {
@@ -353,11 +436,13 @@ export function App() {
             markDone("Rulebook")
             markDone("Rules")
             setTone("ok")
+            setBusyLine("")
             setStatusMsg("Rules ready — next: design a controller")
           },
           error: (d) => {
             setError(String(d.message ?? "Read failed"))
             setTone("error")
+            setBusyLine("")
           },
         },
         ac.signal,
@@ -366,6 +451,7 @@ export function App() {
       if ((err as Error).name !== "AbortError") {
         setError(String(err))
         setTone("error")
+        setBusyLine("")
       }
     }
   }
@@ -376,12 +462,13 @@ export function App() {
     const ac = new AbortController()
     abortRef.current = ac
     setStep("Controller")
-    setTone("busy")
     setBestDiff("")
     setRawLog([])
     setHeadline("")
-    setEvolveStatus("Starting…")
-    setStatusMsg("Designing a controller…")
+    const initial = "Gemini 4 Hydrogen is writing 6 controllers"
+    startBusy(initial)
+    setEvolveStatus(initial)
+    setStatusMsg(initial)
     let localTried = 0
     let localPassed = 0
     let bestOh: number | null = null
@@ -390,6 +477,14 @@ export function App() {
         `/api/ui/session/${sessionId}/evolve`,
         { budget_s: 75, population_size: 6, seed: 101 },
         {
+          status: (d) => {
+            const msg = String(d.message ?? "")
+            if (msg) {
+              setEvolveStatus(msg)
+              setBusyLine(msg)
+              setStatusMsg(msg)
+            }
+          },
           evolve: (d) => {
             const ev = String(d.event ?? "")
             setRawLog((prev) => [...prev.slice(-60), JSON.stringify(d)])
@@ -399,10 +494,11 @@ export function App() {
               if (typeof d.overhead_pct === "number" && d.passed) {
                 if (bestOh == null || d.overhead_pct < bestOh) bestOh = d.overhead_pct
               }
-              setEvolveStatus(
-                `Gemini has written ${localTried} controllers. ${localPassed} follow the rules.` +
-                  (bestOh != null ? ` Best one uses ${bestOh.toFixed(1)}% extra energy.` : ""),
-              )
+              const line =
+                `Gemini 4 Hydrogen is writing controllers — ${localTried} tried, ${localPassed} follow the rules.` +
+                (bestOh != null ? ` Best one uses ${bestOh.toFixed(1)}% extra energy.` : "")
+              setEvolveStatus(line)
+              setBusyLine(line)
               if (typeof d.diff === "string" && d.diff) setBestDiff(d.diff)
             }
             if (typeof d.best_diff === "string" && d.best_diff) setBestDiff(d.best_diff)
@@ -426,6 +522,7 @@ export function App() {
             markDone("Controller")
             setTone(d.passed ? "ok" : "error")
             setEvolveStatus("")
+            setBusyLine("")
             setStatusMsg(d.passed ? "Controller ready — try to break it" : "No safe controller found")
             try {
               const st = await (await fetch(`/api/ui/session/${sessionId}/state`)).json()
@@ -445,6 +542,7 @@ export function App() {
           error: (d) => {
             setError(String(d.message ?? "Design failed"))
             setTone("error")
+            setBusyLine("")
           },
         },
         ac.signal,
@@ -453,6 +551,7 @@ export function App() {
       if ((err as Error).name !== "AbortError") {
         setError(String(err))
         setTone("error")
+        setBusyLine("")
       }
     }
   }
@@ -491,15 +590,21 @@ export function App() {
 
   const fixAttack = async () => {
     if (!sessionId) return
-    setTone("busy")
-    setStatusMsg("Fixing with your attack included…")
+    const line = "Gemini 4 Hydrogen is writing controllers with your attack included"
+    startBusy(line)
+    setStatusMsg(line)
+    setEvolveStatus(line)
     setStep("Controller")
     try {
       await streamPost(
         `/api/ui/session/${sessionId}/fix-attack`,
         { pulse_rate: pulseRate, depth: depthPct / 100, cluster_mw: clusterMw, budget_s: 60 },
         {
-          status: (d) => setEvolveStatus(String(d.message ?? "")),
+          status: (d) => {
+            const msg = String(d.message ?? "")
+            setEvolveStatus(msg)
+            setBusyLine(msg)
+          },
           evolve: (d) => setRawLog((prev) => [...prev.slice(-40), JSON.stringify(d)]),
           fix_complete: async (d) => {
             setHeadline(String(d.headline ?? ""))
@@ -508,6 +613,7 @@ export function App() {
             setAuthorLine(String(d.author_line ?? ""))
             setControllerCode((d.best_code as string) || null)
             setTone(d.passed ? "ok" : "error")
+            setBusyLine("")
             try {
               const tr = await (await fetch(`/api/ui/session/${sessionId}/traces`)).json()
               setTraces(tr)
@@ -523,12 +629,14 @@ export function App() {
           error: (d) => {
             setError(String(d.message ?? "Fix failed"))
             setTone("error")
+            setBusyLine("")
           },
         },
       )
     } catch (err) {
       setError(String(err))
       setTone("error")
+      setBusyLine("")
     }
   }
 
@@ -608,8 +716,8 @@ export function App() {
 
   const runReadVerifyAppend = async (sid: string, pages: number[], fromCamera = false) => {
     setAddRuleBusy(true)
-    setTone("busy")
-    setStatusMsg("Reading new rule…")
+    startBusy("Gemini 4 Neon is reading the pages")
+    setStatusMsg("Gemini 4 Neon is reading the pages")
     setNoRulePhoto(false)
     setPickPdfPages(false)
     let gotConstraint = false
@@ -619,7 +727,11 @@ export function App() {
         `/api/ui/session/${sid}/read-verify`,
         { pages, append: true },
         {
-          status: (d) => setStatusMsg(String(d.message ?? "")),
+          status: (d) => {
+            const msg = String(d.message ?? "")
+            setStatusMsg(msg)
+            setBusyLine(msg)
+          },
           constraint: (d) => {
             const row = d as unknown as ConstraintRow
             gotConstraint = true
@@ -654,17 +766,20 @@ export function App() {
             setHeadline("")
             setVerdict("")
             setTone("ok")
+            setBusyLine("")
             setStep("Rules")
           },
           error: (d) => {
             setError(String(d.message ?? "Read failed"))
             setTone("error")
+            setBusyLine("")
           },
         },
       )
     } catch (err) {
       setError(String(err))
       setTone("error")
+      setBusyLine("")
     } finally {
       setAddRuleBusy(false)
     }
@@ -747,12 +862,29 @@ export function App() {
     return () => window.clearInterval(id)
   }, [step])
 
+  useEffect(() => {
+    if (step !== "Break") return
+    let cancelled = false
+    void fetchFeaturedAgentThread()
+      .then((res) => {
+        if (!cancelled) setRecordedAgent(res.featured)
+      })
+      .catch(() => {
+        if (!cancelled) setRecordedAgent(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [step])
+
   const runAgentHarden = async () => {
     if (!controllerCode || !constraints.length) return
     setAgentBusy(true)
+    setAgentLive(true)
     setAgentMsgs([])
     setAgentVerdict(null)
     setAgentError(null)
+    setAgentHeartbeat("still working, 0 seconds")
     try {
       await streamPost("/api/agents/harden", {
         controller_code: controllerCode,
@@ -760,8 +892,14 @@ export function App() {
         rated_mw: ratedMw,
       }, {
         status: (d) => {
-          if (d.ok === false || (typeof d.message === "string" && /disable|unavail|error|off/i.test(String(d.message)))) {
-            setAgentError(String(d.message || "Agents not connected"))
+          const msg = String(d.message || "")
+          if (d.heartbeat || /still working/i.test(msg)) {
+            setAgentHeartbeat(msg || `still working, ${Number(d.elapsed_s || 0)} seconds`)
+            return
+          }
+          if (msg) setAgentHeartbeat(msg)
+          if (d.ok === false || /disable|unavail|error|off/i.test(msg)) {
+            setAgentError(msg || "Agents not connected")
           }
         },
         agent_message: (d) => {
@@ -792,7 +930,19 @@ export function App() {
           ])
         },
         verdict: (d) => {
-          setAgentVerdict(String(d.message || d.verdict || ""))
+          const v = String(d.verdict || "")
+          let plain = String(d.message || d.verdict || "")
+          if (v === "break_found_and_fixed") plain = "Break found and fixed."
+          else if (v === "break_found_not_fixed" || /worse|reject/i.test(plain)) {
+            plain =
+              /worse/i.test(plain)
+                ? "Break found and the fix was rejected because it made other workloads worse."
+                : "Break found and the fix was rejected because it made other workloads worse."
+          } else if (v === "no_break_within_budget" || v === "no_break") {
+            plain = "No break found."
+          }
+          setAgentVerdict(plain)
+          setAgentHeartbeat(null)
           if (d.verdict === "agents_disabled" || d.verdict === "unavailable") {
             setAgentError(String(d.message || "Agents not connected"))
           }
@@ -809,6 +959,7 @@ export function App() {
       console.warn(err)
     } finally {
       setAgentBusy(false)
+      setAgentHeartbeat(null)
       void refreshAgentTally()
     }
   }
@@ -860,7 +1011,13 @@ export function App() {
       if (tag === "INPUT" || tag === "TEXTAREA") return
       if (e.key === "Escape") {
         e.preventDefault()
+        if (explainerOpen) {
+          closeExplainer()
+          return
+        }
         resetAll()
+      } else if (explainerOpen) {
+        return
       } else if (e.key === " " || e.code === "Space") {
         e.preventDefault()
         void primaryAction()
@@ -871,6 +1028,9 @@ export function App() {
       } else if (e.key.toLowerCase() === "r") {
         e.preventDefault()
         void loadReplay()
+      } else if (e.key.toLowerCase() === "e") {
+        e.preventDefault()
+        if (explainerExists) openExplainer()
       }
     }
     window.addEventListener("keydown", onKey)
@@ -927,6 +1087,24 @@ export function App() {
     }
     return `The hardener agent has been attacking since ${hhmm}: ${agentTally.rounds} rounds, ${agentTally.breaks_found} breaks found, ${agentTally.fixes_confirmed} fixes confirmed.`
   })()
+
+  const recordedLabel = (() => {
+    if (!recordedAgent?.recorded_at_utc) return null
+    try {
+      const d = new Date(recordedAgent.recorded_at_utc)
+      const hhmm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+      return `Recorded today at ${hhmm}`
+    } catch {
+      const slice = recordedAgent.recorded_at_utc.slice(11, 16)
+      return slice ? `Recorded today at ${slice}` : "Recorded today"
+    }
+  })()
+
+  const showLiveAgent = agentLive || agentBusy || agentMsgs.length > 0
+  const panelMsgs = showLiveAgent ? agentMsgs : recordedAgent?.messages ?? []
+  const panelVerdict = showLiveAgent ? agentVerdict : recordedAgent?.plain_verdict ?? null
+
+  const busyStatusLine = busyLine || statusMsg || evolveStatus || "Working…"
 
   const subtitle: Record<StepId, string> = {
     Rulebook: "Drop in a utility PDF or photograph a printed page.",
@@ -1008,6 +1186,12 @@ export function App() {
                       follows it, and proves it.
                     </p>
                   </div>
+
+                  {explainerExists && (
+                    <Button size="lg" variant="secondary" onClick={openExplainer}>
+                      Watch the 18-second explainer
+                    </Button>
+                  )}
 
                   {cameraError && (
                     <div className="border border-amber-500/40 bg-amber-950/40 text-amber-100 px-4 py-3 text-sm">
@@ -1178,9 +1362,11 @@ export function App() {
                       )}
                     </div>
                     <div className="space-y-2 overflow-auto max-h-[480px]">
-                      {tone === "busy" && !checkable.length && (
-                        <p className="text-muted-foreground flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" /> {statusMsg || "Reading…"}
+                      {tone === "busy" && (
+                        <p className="text-base text-amber-100 flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span className="tabular-nums">{busyElapsed}s</span>
+                          <span>— {busyStatusLine}</span>
                         </p>
                       )}
                       {noRulePhoto && (
@@ -1343,7 +1529,8 @@ export function App() {
                   {tone === "busy" && (
                     <p className="text-lg text-amber-100 flex items-center gap-2">
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      {evolveStatus || "Designing…"}
+                      <span className="tabular-nums">{busyElapsed}s</span>
+                      <span>— {busyStatusLine}</span>
                     </p>
                   )}
 
@@ -1628,24 +1815,25 @@ export function App() {
                   )}
 
                   <div className="border-t border-border/40 pt-4 space-y-3">
+                    <h3 className="text-xl font-semibold">Agents</h3>
                     {tallyLine && (
                       <p className="text-sm text-muted-foreground font-mono">{tallyLine}</p>
                     )}
                     {agentError && (
                       <p className="text-sm text-amber-200">{agentError}</p>
                     )}
-                    <Button
-                      size="lg"
-                      variant="secondary"
-                      disabled={agentBusy || !controllerCode}
-                      onClick={() => void runAgentHarden()}
-                    >
-                      {agentBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      Let the AI agents attack it
-                    </Button>
-                    {agentMsgs.length > 0 && (
+                    {!showLiveAgent && recordedLabel && (
+                      <p className="text-sm font-mono text-muted-foreground">{recordedLabel}</p>
+                    )}
+                    {showLiveAgent && agentBusy && agentHeartbeat && (
+                      <p className="text-sm text-amber-100 flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {agentHeartbeat}
+                      </p>
+                    )}
+                    {panelMsgs.length > 0 && (
                       <div className="space-y-2 max-w-3xl">
-                        {agentMsgs.map((m, i) => (
+                        {panelMsgs.map((m, i) => (
                           <div key={i} className="border border-border/40 px-3 py-2">
                             <div className="text-xs font-mono text-muted-foreground">{m.who}</div>
                             <p className="text-base mt-0.5">{m.summary}</p>
@@ -1678,9 +1866,18 @@ export function App() {
                         ))}
                       </div>
                     )}
-                    {agentVerdict && (
-                      <p className="text-lg font-semibold max-w-3xl">{agentVerdict}</p>
+                    {panelVerdict && (
+                      <p className="text-lg font-semibold max-w-3xl">{panelVerdict}</p>
                     )}
+                    <Button
+                      size="lg"
+                      variant="secondary"
+                      disabled={agentBusy || !controllerCode}
+                      onClick={() => void runAgentHarden()}
+                    >
+                      {agentBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      Run a new round now (takes about 5 minutes)
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1704,7 +1901,8 @@ export function App() {
 
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs font-mono text-muted-foreground">
-            Space next · C camera · R replay · Esc start over
+            Space next · C camera · R replay
+            {explainerExists ? " · E explainer" : ""} · Esc start over
           </div>
           <Button
             size="lg"
@@ -1725,6 +1923,29 @@ export function App() {
           {health?.git.first_commit_time?.slice(0, 19) ?? "—"}
         </span>
       </footer>
+
+      {explainerOpen && explainerExists && (
+        <div className="fixed inset-0 z-[60] bg-black flex items-center justify-center">
+          <video
+            ref={explainerRef}
+            src="/explainer.mp4"
+            className="w-full h-full object-contain bg-black"
+            muted
+            playsInline
+            autoPlay
+            onEnded={closeExplainer}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute top-4 right-4 text-white/80 hover:text-white"
+            onClick={closeExplainer}
+          >
+            <X className="h-5 w-5" />
+            Esc
+          </Button>
+        </div>
+      )}
 
       {resultsOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">

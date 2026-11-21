@@ -1,0 +1,165 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #0c1210;
+      font-family: Outfit, sans-serif;
+      color: #f4f7f5;
+      overflow: hidden;
+    }
+    #rules-title {
+      position: absolute;
+      left: 96px;
+      right: 96px;
+      top: 96px;
+      z-index: 5;
+      font-size: 68px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+    #doc-stack {
+      position: absolute;
+      left: 360px;
+      top: 260px;
+      width: 1200px;
+      height: 620px;
+    }
+    .page {
+      position: absolute;
+      left: 0;
+      width: 920px;
+      height: 540px;
+      background: #e8ece9;
+      border-radius: 4px;
+      box-shadow: none;
+      border: 2px solid #c5cdc8;
+      padding: 48px 56px;
+      color: #1a221e;
+    }
+    .page.back-2 {
+      top: 0;
+      left: 48px;
+      transform: rotate(2.2deg);
+      opacity: 0.55;
+    }
+    .page.back-1 {
+      top: 18px;
+      left: 24px;
+      transform: rotate(1deg);
+      opacity: 0.8;
+    }
+    .page.front {
+      top: 40px;
+      left: 0;
+    }
+    .lines {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .line {
+      height: 14px;
+      background: #b7c0ba;
+      border-radius: 2px;
+    }
+    .line.short {
+      width: 62%;
+    }
+    .line.mid {
+      width: 84%;
+    }
+    .line.long {
+      width: 96%;
+    }
+    #rule-line {
+      position: relative;
+      margin-top: 8px;
+      padding: 14px 16px;
+      background: transparent;
+      border-radius: 4px;
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #1a221e;
+      line-height: 1.3;
+    }
+    #rule-line .rule-inner {
+      display: inline-block;
+    }
+  </style>
+  <div id="root" data-composition-id="scene-rules" data-width="1920" data-height="1080">
+    <h1 id="rules-title" class="clip" data-start="0.1" data-duration="3.75" data-track-index="0">
+      <span class="title-inner">So utilities write rules.</span>
+    </h1>
+    <div id="doc-stack" class="clip" data-start="0" data-duration="4" data-track-index="1">
+      <div class="page back-2">
+        <div class="lines">
+          <div class="line long"></div>
+          <div class="line mid"></div>
+          <div class="line long"></div>
+          <div class="line short"></div>
+          <div class="line mid"></div>
+          <div class="line long"></div>
+        </div>
+      </div>
+      <div class="page back-1">
+        <div class="lines">
+          <div class="line mid"></div>
+          <div class="line long"></div>
+          <div class="line short"></div>
+          <div class="line long"></div>
+          <div class="line mid"></div>
+          <div class="line long"></div>
+        </div>
+      </div>
+      <div class="page front">
+        <div class="lines">
+          <div class="line long"></div>
+          <div class="line mid"></div>
+          <div class="line long"></div>
+          <div class="line short"></div>
+          <div class="line mid"></div>
+        </div>
+        <div id="rule-line">
+          <span class="rule-inner">Ramp rate shall not exceed 20 MW/min.</span>
+        </div>
+        <div class="lines" style="margin-top: 18px">
+          <div class="line long"></div>
+          <div class="line mid"></div>
+          <div class="line short"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo(
+      "#rules-title .title-inner",
+      { opacity: 0, filter: "blur(8px)" },
+      { opacity: 1, filter: "blur(0px)", duration: 0.22, ease: "power4.out" },
+      0.1,
+    );
+    tl.fromTo(
+      "#doc-stack .page",
+      { opacity: 0, y: 28 },
+      { opacity: 1, y: 0, duration: 0.4, stagger: 0.08, ease: "power3.out" },
+      0.15,
+    );
+    // One line lights up (green safe highlight on the rule)
+    tl.fromTo(
+      "#rule-line",
+      { backgroundColor: "rgba(47,219,122,0)", color: "#1a221e" },
+      { backgroundColor: "rgba(47,219,122,0.35)", color: "#0c1210", duration: 0.45, ease: "power2.out" },
+      1.4,
+    );
+    tl.fromTo(
+      "#rule-line .rule-inner",
+      { scale: 1 },
+      { scale: 1.02, duration: 0.35, ease: "power2.out" },
+      1.4,
+    );
+    window.__timelines["scene-rules"] = tl;
+  </script>
+</template>

@@ -1,0 +1,280 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #0c1210;
+      font-family: Outfit, sans-serif;
+      color: #f4f7f5;
+      overflow: hidden;
+    }
+    #gs-title {
+      position: absolute;
+      left: 96px;
+      right: 96px;
+      top: 72px;
+      z-index: 5;
+      font-size: 56px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      max-width: 1600px;
+    }
+    #pipeline {
+      position: absolute;
+      left: 120px;
+      right: 120px;
+      top: 260px;
+      height: 110px;
+      display: flex;
+      gap: 24px;
+      align-items: stretch;
+    }
+    .step {
+      flex: 1;
+      background: #151c18;
+      border: 2px solid #2a3530;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #8a968e;
+    }
+    .step.active {
+      color: #f4f7f5;
+      border-color: #2fdb7a;
+    }
+    #chart-wrap {
+      position: absolute;
+      left: 120px;
+      width: 980px;
+      top: 400px;
+      height: 420px;
+    }
+    #limit-line {
+      position: absolute;
+      left: 40px;
+      right: 40px;
+      top: 90px;
+      height: 3px;
+      background: #8a968e;
+      opacity: 0.7;
+    }
+    #limit-label {
+      position: absolute;
+      right: 40px;
+      top: 52px;
+      font-size: 28px;
+      color: #8a968e;
+      font-weight: 600;
+    }
+    #wave-svg {
+      position: absolute;
+      left: 40px;
+      right: 40px;
+      top: 40px;
+      height: 280px;
+      width: calc(100% - 80px);
+      overflow: visible;
+    }
+    #wave-path {
+      fill: none;
+      stroke: #e54848;
+      stroke-width: 5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    #shaft-panel {
+      position: absolute;
+      right: 120px;
+      top: 420px;
+      width: 560px;
+      height: 380px;
+    }
+    #shaft-box {
+      position: absolute;
+      left: 60px;
+      top: 40px;
+      width: 440px;
+      height: 260px;
+      background: #151c18;
+      border: 3px solid #2a3530;
+      border-radius: 16px;
+    }
+    #shaft-wrap {
+      position: absolute;
+      left: 140px;
+      top: 100px;
+      width: 280px;
+      height: 140px;
+      transform-origin: 50% 50%;
+    }
+    #shaft {
+      position: absolute;
+      left: 0;
+      top: 40px;
+      width: 280px;
+      height: 60px;
+      background: #e54848;
+      border-radius: 30px;
+      border: 3px solid #2a3530;
+    }
+    #rotor {
+      position: absolute;
+      left: 90px;
+      top: 10px;
+      width: 100px;
+      height: 120px;
+      background: #e54848;
+      border-radius: 8px;
+      border: 3px solid #2a3530;
+    }
+    .rotor-line {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      height: 4px;
+      background: #2a3530;
+    }
+    .rotor-line:nth-child(1) {
+      top: 28px;
+    }
+    .rotor-line:nth-child(2) {
+      top: 56px;
+    }
+    .rotor-line:nth-child(3) {
+      top: 84px;
+    }
+    #shaft-caption {
+      position: absolute;
+      left: 60px;
+      bottom: 20px;
+      font-size: 28px;
+      font-weight: 600;
+      color: #8a968e;
+    }
+    #feed-page {
+      position: absolute;
+      left: 120px;
+      top: 170px;
+      width: 140px;
+      height: 80px;
+      z-index: 2;
+      pointer-events: none;
+    }
+    #feed-page .feed-inner {
+      width: 100%;
+      height: 100%;
+      background: #e8ece9;
+      border: 2px solid #c5cdc8;
+      border-radius: 4px;
+    }
+  </style>
+  <div id="root" data-composition-id="scene-gridsafe" data-width="1920" data-height="1080">
+    <h1 id="gs-title" class="clip" data-start="0.08" data-duration="3.8" data-track-index="0">
+      <span class="title-inner">GridSafe reads the rulebook and writes a controller.</span>
+    </h1>
+    <div id="feed-page" class="clip" data-start="0.15" data-duration="0.85" data-track-index="2">
+      <div class="feed-inner"></div>
+    </div>
+    <div id="pipeline" class="clip" data-start="0.9" data-duration="2.95" data-track-index="1">
+      <div class="step" id="step-read">Read</div>
+      <div class="step" id="step-verify">Verify</div>
+      <div class="step" id="step-write">Write</div>
+      <div class="step" id="step-attack">Attack</div>
+    </div>
+    <div id="chart-wrap" class="clip" data-start="0.8" data-duration="3.1" data-track-index="1">
+      <div id="limit-line"></div>
+      <div id="limit-label">limit</div>
+      <svg id="wave-svg" viewBox="0 0 900 280" preserveAspectRatio="none">
+        <path
+          id="wave-path"
+          d="M0 200 H80 V60 H160 V200 H240 V60 H320 V200 H400 V60 H480 V200 H560 V60 H640 V200 H720 V60 H800 V200 H900"
+        />
+      </svg>
+    </div>
+    <div id="shaft-panel" class="clip" data-start="0.8" data-duration="3.1" data-track-index="1">
+      <div id="shaft-box"></div>
+      <div id="shaft-wrap">
+        <div id="rotor">
+          <div class="rotor-line"></div>
+          <div class="rotor-line"></div>
+          <div class="rotor-line"></div>
+        </div>
+        <div id="shaft"></div>
+      </div>
+      <div id="shaft-caption">Generator</div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo(
+      "#gs-title .title-inner",
+      { opacity: 0, filter: "blur(8px)" },
+      { opacity: 1, filter: "blur(0px)", duration: 0.22, ease: "power4.out" },
+      0.08,
+    );
+    tl.fromTo(
+      "#feed-page .feed-inner",
+      { opacity: 0 },
+      { opacity: 1, duration: 0.2, ease: "power2.out" },
+      0.15,
+    );
+    tl.fromTo(
+      "#feed-page",
+      { x: -40, scale: 0.92 },
+      { x: 0, scale: 1, duration: 0.28, ease: "power3.out" },
+      0.15,
+    );
+    tl.to(
+      "#feed-page",
+      { x: 40, y: 70, scale: 0.55, duration: 0.4, ease: "power2.in" },
+      0.5,
+    );
+    tl.to(
+      "#feed-page .feed-inner",
+      { opacity: 0, duration: 0.15, ease: "power2.in" },
+      0.85,
+    );
+    const steps = ["#step-read", "#step-verify", "#step-write", "#step-attack"];
+    steps.forEach((sel, i) => {
+      tl.fromTo(
+        sel,
+        { opacity: 0, y: 16 },
+        { opacity: 1, y: 0, duration: 0.28, ease: "power3.out" },
+        0.95 + i * 0.16,
+      );
+      tl.to(
+        sel,
+        {
+          color: "#f4f7f5",
+          borderColor: "#2fdb7a",
+          duration: 0.22,
+          ease: "power2.out",
+        },
+        1.4 + i * 0.25,
+      );
+    });
+    // Square red → smooth green under limit
+    tl.to(
+      "#wave-path",
+      {
+        attr: {
+          d: "M0 160 C80 160 100 150 160 145 C240 135 280 130 360 128 C480 124 560 122 680 120 C760 118 820 118 900 118",
+        },
+        duration: 0.9,
+        ease: "power2.inOut",
+      },
+      2.0,
+    );
+    tl.to("#wave-path", { stroke: "#2fdb7a", duration: 0.5, ease: "power2.out" }, 2.0);
+    // Shaft calms and turns green
+    tl.fromTo("#shaft-wrap", { rotation: -10 }, { rotation: 0, duration: 0.8, ease: "power2.out" }, 2.1);
+    tl.to("#shaft", { backgroundColor: "#2fdb7a", duration: 0.55, ease: "power2.out" }, 2.1);
+    tl.to("#rotor", { backgroundColor: "#2fdb7a", duration: 0.55, ease: "power2.out" }, 2.1);
+    window.__timelines["scene-gridsafe"] = tl;
+  </script>
+</template>

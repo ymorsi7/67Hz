@@ -1,0 +1,220 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #0c1210;
+      font-family: Outfit, sans-serif;
+      color: #f4f7f5;
+      overflow: hidden;
+    }
+    #gen-title {
+      position: absolute;
+      left: 96px;
+      right: 96px;
+      top: 96px;
+      z-index: 5;
+      font-size: 64px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      max-width: 1500px;
+    }
+    #gen-stage {
+      position: absolute;
+      left: 120px;
+      right: 120px;
+      top: 280px;
+      bottom: 100px;
+    }
+    #wire-svg {
+      position: absolute;
+      left: 0;
+      top: 40px;
+      width: 980px;
+      height: 220px;
+      overflow: visible;
+    }
+    #wire-path {
+      fill: none;
+      stroke: #e54848;
+      stroke-width: 5;
+      stroke-linecap: square;
+    }
+    #pulse-dot {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      margin-left: -9px;
+      margin-top: -9px;
+      border-radius: 50%;
+      background: #e54848;
+      left: 0;
+      top: 0;
+      will-change: transform;
+    }
+    #generator {
+      position: absolute;
+      right: 80px;
+      top: 80px;
+      width: 420px;
+      height: 420px;
+    }
+    #gen-body {
+      position: absolute;
+      left: 40px;
+      top: 80px;
+      width: 340px;
+      height: 260px;
+      background: #151c18;
+      border: 3px solid #2a3530;
+      border-radius: 18px;
+    }
+    #shaft-wrap {
+      position: absolute;
+      left: 90px;
+      top: 130px;
+      width: 240px;
+      height: 160px;
+      transform-origin: 50% 50%;
+    }
+    #shaft {
+      position: absolute;
+      left: 0;
+      top: 50px;
+      width: 240px;
+      height: 60px;
+      background: #8a968e;
+      border-radius: 30px;
+      border: 3px solid #2a3530;
+    }
+    #rotor {
+      position: absolute;
+      left: 70px;
+      top: 20px;
+      width: 100px;
+      height: 120px;
+      background: #c5cdc8;
+      border-radius: 8px;
+      border: 3px solid #2a3530;
+    }
+    .rotor-line {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      height: 4px;
+      background: #2a3530;
+      border-radius: 2px;
+    }
+    .rotor-line:nth-child(1) {
+      top: 28px;
+    }
+    .rotor-line:nth-child(2) {
+      top: 56px;
+    }
+    .rotor-line:nth-child(3) {
+      top: 84px;
+    }
+    #gen-label {
+      position: absolute;
+      left: 40px;
+      bottom: 20px;
+      font-size: 28px;
+      font-weight: 600;
+      color: #8a968e;
+    }
+  </style>
+  <div id="root" data-composition-id="scene-generators" data-width="1920" data-height="1080">
+    <h1 id="gen-title" class="clip" data-start="0.1" data-duration="3.75" data-track-index="0">
+      <span class="title-inner">Those pulses shake power plant generators.</span>
+    </h1>
+    <div id="gen-stage" class="clip" data-start="0" data-duration="4" data-track-index="1">
+      <svg id="wire-svg" viewBox="0 0 980 220" preserveAspectRatio="none">
+        <path
+          id="wire-path"
+          d="M20 40 H180 V140 H340 V40 H500 V140 H660 V40 H820 V100 H960"
+        />
+      </svg>
+      <div id="pulse-dot"></div>
+      <div id="generator">
+        <div id="gen-body"></div>
+        <div id="shaft-wrap">
+          <div id="rotor">
+            <div class="rotor-line"></div>
+            <div class="rotor-line"></div>
+            <div class="rotor-line"></div>
+          </div>
+          <div id="shaft"></div>
+        </div>
+        <div id="gen-label" data-layout-ignore>Generator</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo(
+      "#gen-title .title-inner",
+      { opacity: 0, filter: "blur(8px)" },
+      { opacity: 1, filter: "blur(0px)", duration: 0.22, ease: "power4.out" },
+      0.1,
+    );
+    tl.fromTo(
+      "#generator",
+      { opacity: 0, x: 30 },
+      { opacity: 1, x: 0, duration: 0.35, ease: "power3.out" },
+      0.05,
+    );
+    tl.fromTo(
+      "#wire-path",
+      { strokeDasharray: 1400, strokeDashoffset: 1400 },
+      { strokeDashoffset: 0, duration: 0.7, ease: "power2.out" },
+      0.15,
+    );
+    // Pulses travel along the wire (dot hops via transforms)
+    const hops = [
+      [40, 70],
+      [180, 70],
+      [180, 170],
+      [340, 170],
+      [340, 70],
+      [500, 70],
+      [500, 170],
+      [660, 170],
+      [660, 70],
+      [820, 70],
+      [960, 130],
+    ];
+    tl.set("#pulse-dot", { x: hops[0][0], y: hops[0][1] }, 0);
+    hops.slice(1).forEach((p, i) => {
+      tl.to(
+        "#pulse-dot",
+        { x: p[0], y: p[1], duration: 0.18, ease: "none" },
+        0.35 + i * 0.18,
+      );
+    });
+    // Shaft twists and turns problem-red
+    tl.to(
+      "#shaft-wrap",
+      { rotation: 12, duration: 0.35, ease: "power2.inOut" },
+      2.1,
+    );
+    tl.to("#shaft", { backgroundColor: "#e54848", duration: 0.35, ease: "power2.inOut" }, 2.1);
+    tl.to("#rotor", { backgroundColor: "#e54848", duration: 0.35, ease: "power2.inOut" }, 2.1);
+    tl.to(
+      "#shaft-wrap",
+      { rotation: -12, duration: 0.4, ease: "power2.inOut" },
+      2.5,
+    );
+    tl.to(
+      "#shaft-wrap",
+      { rotation: 8, duration: 0.35, ease: "power2.inOut" },
+      2.95,
+    );
+    tl.to(
+      "#shaft-wrap",
+      { rotation: -6, duration: 0.35, ease: "power2.inOut" },
+      3.35,
+    );
+    window.__timelines["scene-generators"] = tl;
+  </script>
+</template>

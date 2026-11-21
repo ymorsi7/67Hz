@@ -1,0 +1,72 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #0c1210;
+      font-family: Outfit, sans-serif;
+      color: #f4f7f5;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #end-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+      text-align: center;
+    }
+    #end-logo {
+      width: 160px;
+      height: 160px;
+      object-fit: contain;
+    }
+    #end-name {
+      font-size: 84px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+    #end-tag {
+      font-size: 36px;
+      font-weight: 500;
+      color: #c5cdc8;
+      letter-spacing: -0.01em;
+      max-width: 1100px;
+    }
+  </style>
+  <div data-hf-id="hf-483l" id="root" data-composition-id="scene-end" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-c56o" id="end-card" class="clip" data-start="0" data-duration="2" data-track-index="0">
+      <img data-hf-id="hf-ulgw" id="end-logo" src="assets/logo.png" alt="" width="160" height="160">
+      <div data-hf-id="hf-obt4" id="end-name"><span data-hf-id="hf-4l7q" class="name-inner">GridSafe: 67Hz</span></div>
+      <div data-hf-id="hf-qr7n" id="end-tag">
+        <span data-hf-id="hf-ocom" class="tag-inner">Rulebook in. Verified controller out.</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo(
+      "#end-logo",
+      { opacity: 0, scale: 0.96 },
+      { opacity: 1, scale: 1, duration: 0.12, ease: "power3.out" },
+      0,
+    );
+    tl.fromTo(
+      "#end-name .name-inner",
+      { opacity: 0 },
+      { opacity: 1, duration: 0.08, ease: "power2.out" },
+      0,
+    );
+    tl.fromTo(
+      "#end-tag .tag-inner",
+      { opacity: 0 },
+      { opacity: 1, duration: 0.08, ease: "power2.out" },
+      0,
+    );
+    window.__timelines["scene-end"] = tl;
+  </script>
+</template>

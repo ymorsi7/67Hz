@@ -198,6 +198,27 @@ export async function fetchAgentThreads() {
   )
 }
 
+export type FeaturedAgentThread = {
+  thread_id: string
+  file: string
+  kind?: string
+  recorded_at_utc: string
+  break_found: boolean
+  plain_verdict: string
+  messages: Array<{
+    who: string
+    summary: string
+    payload?: unknown
+    stamp?: "confirmed" | "rejected" | null
+  }>
+}
+
+export async function fetchFeaturedAgentThread() {
+  return parseJson<{ featured: FeaturedAgentThread | null; message?: string; n_candidates?: number }>(
+    await fetch("/api/ui/agent-threads/featured"),
+  )
+}
+
 export async function loadReplaySession() {
   return parseJson<{
     session_id: string

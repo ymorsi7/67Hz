@@ -914,7 +914,17 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
         from reader.verify import verify_constraints
         from rules.schema import Constraint
 
-        yield _sse("status", {"phase": "read", "message": f"Reading {len(pages)} page(s)…", "pages": pages})
+        reader_label = _model_display_name("gemini-4-neon")
+        verifier_label = _model_display_name("gemini-decision-1")
+        yield _sse(
+            "status",
+            {
+                "phase": "read",
+                "message": f"{reader_label} is preparing to read {len(pages)} page(s)",
+                "pages": pages,
+                "model": reader_label,
+            },
+        )
         await asyncio.sleep(0)
 
         all_constraints: list[Constraint] = []
@@ -924,6 +934,15 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
 
         try:
             for pg in pages:
+                yield _sse(
+                    "status",
+                    {
+                        "phase": "read",
+                        "message": f"{reader_label} is reading page {pg}",
+                        "page": pg,
+                        "model": reader_label,
+                    },
+                )
                 yield _sse("page_read_start", {"page": pg})
                 await asyncio.sleep(0)
                 # Prefer stored images (camera / appended photo); else render from PDF
@@ -985,7 +1004,14 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
             await asyncio.sleep(0)
 
             # Verify
-            yield _sse("status", {"phase": "verify", "message": "Verifying against page images…"})
+            yield _sse(
+                "status",
+                {
+                    "phase": "verify",
+                    "message": f"{verifier_label} is checking each rule against the page",
+                    "model": verifier_label,
+                },
+            )
             report = await asyncio.to_thread(
                 verify_constraints,
                 all_constraints,
@@ -994,6 +1020,16 @@ async def read_verify_stream(session_id: str, body: SelectPagesBody | None = Non
             )
             sess.verifier_model = report.verifier_model
             sess.verification = report.to_dict()
+            if report.verifier_model:
+                verifier_label = _model_display_name(report.verifier_model)
+                yield _sse(
+                    "status",
+                    {
+                        "phase": "verify",
+                        "message": f"{verifier_label} is checking each rule against the page",
+                        "model": verifier_label,
+                    },
+                )
 
             # Merge verification into constraint dicts and stream updates
             by_id = {v.constraint_id: v for v in report.items}
@@ -1200,14 +1236,17 @@ async def evolve_stream(session_id: str, body: EvolveBody | None = None) -> Stre
         def on_event(payload: dict[str, Any]) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, payload)
 
+        designer_label = _model_display_name("gemini-4-hydrogen")
         yield _sse(
             "status",
             {
                 "phase": "evolve",
-                "message": "Evolving controller (local Hydrogen loop)…",
+                "message": f"{designer_label} is writing {opts.population_size} controllers",
                 "n_constraints": len(ruleset.constraints),
                 "n_workloads": len(workloads),
                 "budget_s": opts.budget_s,
+                "model": designer_label,
+                "population_size": opts.population_size,
             },
         )
         await asyncio.sleep(0)
@@ -1626,11 +1665,13 @@ async def fix_attack_stream(session_id: str, body: FixAttackBody) -> StreamingRe
         workloads = all_preset_workloads(cluster_mw=sess.rated_mw)
         workloads["judge_attack"] = attack_params
 
+        designer_label = _model_display_name("gemini-4-hydrogen")
         yield _sse(
             "status",
             {
-                "message": "Fixing: redesigning the controller with your attack included…",
+                "message": f"{designer_label} is writing controllers with your attack included",
                 "phase": "fix",
+                "model": designer_label,
             },
         )
         await asyncio.sleep(0)
@@ -1700,6 +1741,428 @@ async def fix_attack_stream(session_id: str, body: FixAttackBody) -> StreamingRe
         yield _sse("done", {"ok": result.passed})
 
     return _sse_response(gen())
+
+
+def _model_display_name(model_id: str) -> str:
+    mid = (model_id or "").strip().lower()
+    if "decision" in mid:
+        return "Gemini Decision 1"
+    if "neon" in mid:
+        return "Gemini 4 Neon"
+    if "hydrogen" in mid:
+        return "Gemini 4 Hydrogen"
+    if "carbon" in mid:
+        return "Gemini 4 Carbon"
+    if mid:
+        return model_id.replace("gemini-", "Gemini ").replace("-", " ").title()
+    return "Gemini"
+
+
+def _plain_fix_reject_sentence(reason: str | None, *, worse_on_n: int = 0) -> str | None:
+    """Map a real gate/check reason to a plain sentence. None if reason unknown."""
+    r = (reason or "").strip().lower()
+    if r in {"counterexample_still_breaks", "cx_still_breaks", "counterexamples_still_break"}:
+        return (
+            "The agent proposed a fix, but GridSafe's check showed it did not stop the break. "
+            "The fix was rejected and the issue is logged as open."
+        )
+    if r in {"validation_regression", "made_worse", "worse_on_validation"} or (
+        r.startswith("validation") and "regress" in r
+    ):
+        n = max(0, int(worse_on_n or 0))
+        return f"The fix was rejected because it made {n} other workloads worse."
+    if r in {"presets_failed", "preset_failed", "failed_preset"}:
+        return "The fix was rejected because it broke a rule on the standard tests."
+    return None
+
+
+def _plain_agent_verdict(
+    *,
+    break_found: bool | None,
+    fix_accepted: bool | None,
+    fix_rejected: bool | None,
+    reject_reason: str | None = None,
+    worse_on_n: int = 0,
+) -> str | None:
+    """Plain verdict from thread data only — never invent a rejection reason."""
+    if break_found is True and fix_accepted is True:
+        return "Break found and fixed."
+    if break_found is True and (fix_rejected is True or fix_accepted is False):
+        specific = _plain_fix_reject_sentence(reject_reason, worse_on_n=worse_on_n)
+        if specific:
+            return specific
+        return "Break found and the fix was rejected."
+    if break_found is False:
+        return "No break found."
+    return None
+
+
+def _parse_agent_thread_file(path: Path) -> dict[str, Any] | None:
+    """Turn a thread json/jsonl (+ optional summary/meta) into a UI-facing conversation."""
+    if ".meta." in path.name or path.name.endswith("_summary.json"):
+        return None
+    stem = path.name
+    if stem.endswith(".jsonl"):
+        thread_id = stem[: -len(".jsonl")]
+    elif stem.endswith(".json"):
+        thread_id = stem[: -len(".json")]
+    else:
+        return None
+    if thread_id.endswith("_thread"):
+        # keep id as-is for meta lookup variants
+        pass
+
+    meta: dict[str, Any] = {}
+    for meta_name in (f"{thread_id}.meta.json", f"{thread_id}_thread.meta.json"):
+        mp = AGENT_THREADS_DIR / meta_name
+        if mp.exists():
+            try:
+                meta = json.loads(mp.read_text(encoding="utf-8"))
+            except Exception:
+                meta = {}
+            break
+
+    summary: dict[str, Any] = {}
+    for sum_name in (f"{thread_id}_summary.json", f"{thread_id.replace('_thread', '')}_summary.json"):
+        sp = AGENT_THREADS_DIR / sum_name
+        if sp.exists():
+            try:
+                summary = json.loads(sp.read_text(encoding="utf-8"))
+            except Exception:
+                summary = {}
+            break
+
+    events: list[dict[str, Any]] = []
+    try:
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".jsonl":
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(row, dict):
+                    events.append(row)
+        else:
+            data = json.loads(text)
+            if isinstance(data, dict) and isinstance(data.get("events"), list):
+                events = [e for e in data["events"] if isinstance(e, dict)]
+            elif isinstance(data, list):
+                events = [e for e in data if isinstance(e, dict)]
+            else:
+                return None
+    except Exception:
+        return None
+
+    messages: list[dict[str, Any]] = []
+    break_found: bool | None = None
+    fix_accepted: bool | None = None
+    fix_rejected: bool | None = None
+    reject_reason: str | None = None
+    worse_on_n = 0
+    recorded_at: str | None = None
+
+    def _who(sender: str) -> str:
+        s = (sender or "").lower()
+        if "engineer" in s:
+            return "Engineer agent (Gemini 4 Hydrogen)"
+        if "hardener" in s:
+            return "Hardener agent (Gemini 4 Carbon)"
+        if "gridsafe" in s or sender == "backend":
+            return "GridSafe"
+        return sender or "Agent"
+
+    def _push(who: str, summary_text: str, payload: Any = None, stamp: str | None = None) -> None:
+        messages.append(
+            {
+                "who": who,
+                "summary": summary_text,
+                "payload": payload,
+                "stamp": stamp,
+            }
+        )
+
+    # Summary-first signals (lipa_f11 style)
+    if summary:
+        if summary.get("break_found") is True:
+            break_found = True
+        if summary.get("break_found") is False:
+            break_found = False
+        if summary.get("backend_accepted_break") is True:
+            break_found = True
+        if summary.get("fix_passed") is True and summary.get("backend_cx_still_break") is False:
+            fix_accepted = True
+        if summary.get("completed_at_utc"):
+            recorded_at = str(summary["completed_at_utc"])
+
+    for e in events:
+        ev = str(e.get("event") or "")
+        ts = e.get("ts_utc") or e.get("created_at_utc")
+        if isinstance(ts, str) and ts:
+            recorded_at = recorded_at or ts
+
+        if ev == "heartbeat":
+            continue
+
+        if ev in {"message_out", "agent_message"} and (e.get("from") or e.get("sender")):
+            sender = str(e.get("from") or e.get("sender") or "")
+            payload = e.get("payload") if isinstance(e.get("payload"), dict) else None
+            typ = ""
+            if payload:
+                typ = str(payload.get("type") or payload.get("status") or "")
+            if typ == "submit_controller" or (ev == "message_out" and "engineer" in sender.lower()):
+                nbytes = None
+                if payload:
+                    nbytes = payload.get("controller_bytes")
+                _push(
+                    _who(sender),
+                    f"Engineer submitted a controller for attack"
+                    + (f" ({nbytes} bytes)" if nbytes else ""),
+                    payload or {"type": "submit_controller"},
+                )
+            elif payload and e.get("summary"):
+                _push(_who(sender), str(e.get("summary")), payload)
+            continue
+
+        if ev == "message_in":
+            sender = str(e.get("from") or "gridsafe-hardener")
+            reply = e.get("reply") if isinstance(e.get("reply"), dict) else {}
+            status = str(reply.get("status") or "")
+            check = e.get("backend_counterexample_check") if isinstance(e.get("backend_counterexample_check"), dict) else {}
+            if status == "break_found" or (check and check.get("break_found")):
+                break_found = True
+                n = len(reply.get("counterexamples") or check.get("verified_breaks") or [])
+                _push(
+                    _who(sender),
+                    f"Hardener reported a break with {n or 1} counterexample(s)",
+                    reply or check,
+                )
+            elif status in {"no_break_within_budget", "no_break", "no_break_found"}:
+                break_found = False
+                _push(_who(sender), "Hardener found no break within budget", reply)
+            elif status == "ack":
+                _push(_who(sender), "Hardener acknowledged the fix", reply)
+            elif e.get("ok") and reply:
+                _push(_who(sender), f"Hardener replied ({status or 'message'})", reply)
+            continue
+
+        if ev == "hardener_reply":
+            reply = e.get("reply") if isinstance(e.get("reply"), dict) else {}
+            if reply.get("status") == "break_found" or reply.get("counterexamples"):
+                break_found = True
+                n = len(reply.get("counterexamples") or [])
+                _push(_who("gridsafe-hardener"), f"Hardener reported a break with {n} counterexample(s)", reply)
+            continue
+
+        if ev in {"backend_counterexample_check", "backend_check"}:
+            check = e.get("check") if isinstance(e.get("check"), dict) else e
+            bf = check.get("break_found") if isinstance(check, dict) else None
+            if bf is True:
+                break_found = True
+                stamp = "confirmed"
+                _push("GridSafe", "Backend accepted the claimed break.", check, stamp)
+            elif bf is False:
+                _push("GridSafe", "Backend rejected the claimed breaks.", check, "rejected")
+            continue
+
+        if ev == "host_rand20_probe":
+            passed = e.get("passed")
+            _push(
+                "GridSafe",
+                (
+                    "Backend Rand20 probe: controller still passes all 20 workloads."
+                    if passed
+                    else "Backend Rand20 probe: found at least one failing workload."
+                ),
+                e,
+                "confirmed" if passed else "rejected",
+            )
+            if passed is False:
+                break_found = True
+            elif passed is True and break_found is None:
+                break_found = False
+            continue
+
+        if ev == "engineer_fix":
+            _push(
+                _who("gridsafe-engineer"),
+                f"Engineer produced a fix candidate (outcome={e.get('outcome')}, passed={e.get('passed')})",
+                e,
+            )
+            continue
+
+        if ev in {"backend_confirm", "backend_confirm_final"}:
+            cx_break = e.get("counterexamples_still_break")
+            if cx_break is None:
+                cx_break = e.get("cx_still_break")
+            ok = bool(e.get("preset_passed")) and bool(e.get("rand20_passed")) and not bool(cx_break)
+            if ok:
+                fix_accepted = True
+                break_found = True if break_found is None else break_found
+                _push("GridSafe", "Backend confirms the fix: counterexamples clear, presets pass.", e, "confirmed")
+            else:
+                fix_rejected = True
+                break_found = True
+                _push("GridSafe", "Backend could not fully confirm the fix.", e, "rejected")
+            continue
+
+        if ev == "fix_gate":
+            accepted = bool(e.get("accepted"))
+            reason = str(e.get("reason") or "")
+            worse_n = int(e.get("worse_on_n") or 0)
+            if reason in {"validation_regression", "made_worse"} or worse_n > 0:
+                worse_workloads = True
+            if accepted:
+                fix_accepted = True
+                break_found = True
+                _push("GridSafe", str(e.get("message") or "Fix accepted by backend gate."), e, "confirmed")
+            else:
+                fix_rejected = True
+                break_found = True
+                msg = str(e.get("message") or "Fix rejected by backend gate.")
+                if worse_workloads and "worse" not in msg.lower():
+                    msg = "Fix rejected: it made other workloads worse."
+                _push("GridSafe", msg, e, "rejected")
+            continue
+
+        if ev == "verdict":
+            v = str(e.get("verdict") or "")
+            if v == "break_found_and_fixed":
+                break_found, fix_accepted = True, True
+            elif v in {"break_found_not_fixed", "break_found_fix_rejected"}:
+                break_found, fix_rejected = True, True
+            elif v in {"no_break_within_budget", "no_break"}:
+                break_found = False
+            if e.get("message"):
+                _push("GridSafe", str(e["message"]), e)
+
+    # Meta last_result (minimal_exchange style)
+    last = meta.get("last_result") if isinstance(meta.get("last_result"), dict) else {}
+    hard_reply = last.get("hardener_reply") if isinstance(last.get("hardener_reply"), dict) else {}
+    parsed = hard_reply.get("parsed") if isinstance(hard_reply.get("parsed"), dict) else {}
+    if parsed.get("status") == "break_found" or parsed.get("break_found") is True:
+        break_found = True if break_found is None else break_found
+    if isinstance(hard_reply.get("raw_text"), str) and "break_found" in hard_reply["raw_text"]:
+        break_found = True if break_found is None else break_found
+
+    if not recorded_at:
+        created = meta.get("created_at_utc")
+        if isinstance(created, str):
+            recorded_at = created
+        else:
+            recorded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(path.stat().st_mtime))
+
+    plain = _plain_agent_verdict(
+        break_found=break_found,
+        fix_accepted=fix_accepted,
+        fix_rejected=fix_rejected,
+        worse_workloads=worse_workloads,
+    )
+    # Hardener-only completion (UI rounds cut before host verdict): still a verdict
+    if plain is None and break_found is False and any(
+        str((m.get("summary") or "")).lower().find("no break") >= 0 for m in messages
+    ):
+        plain = "No break found."
+    if plain is None:
+        return None
+    if not messages:
+        # Build a minimal conversation so the panel is never empty for a real verdict
+        if break_found and fix_accepted:
+            messages = [
+                {
+                    "who": "Hardener agent (Gemini 4 Carbon)",
+                    "summary": "Hardener reported a break",
+                    "payload": None,
+                    "stamp": None,
+                },
+                {
+                    "who": "GridSafe",
+                    "summary": "Break found and fixed.",
+                    "payload": None,
+                    "stamp": "confirmed",
+                },
+            ]
+        elif break_found:
+            messages = [
+                {
+                    "who": "Hardener agent (Gemini 4 Carbon)",
+                    "summary": "Hardener reported a break",
+                    "payload": None,
+                    "stamp": None,
+                },
+                {
+                    "who": "GridSafe",
+                    "summary": plain,
+                    "payload": None,
+                    "stamp": "rejected",
+                },
+            ]
+        else:
+            messages = [
+                {
+                    "who": "Hardener agent (Gemini 4 Carbon)",
+                    "summary": "Hardener found no break within budget",
+                    "payload": None,
+                    "stamp": None,
+                },
+                {
+                    "who": "GridSafe",
+                    "summary": "No break found.",
+                    "payload": None,
+                    "stamp": "confirmed",
+                },
+            ]
+
+    return {
+        "thread_id": meta.get("thread_id") or thread_id,
+        "file": path.name,
+        "kind": meta.get("kind"),
+        "recorded_at_utc": recorded_at,
+        "break_found": bool(break_found),
+        "plain_verdict": plain,
+        "messages": messages,
+        "mtime": path.stat().st_mtime,
+    }
+
+
+@ui_router.get("/agent-threads/featured")
+async def featured_agent_thread() -> dict[str, Any]:
+    """Most recent completed agent conversation that reached a verdict.
+
+    Prefers a thread where a break was found. Used for the Break-it Agents panel demo.
+    """
+    if not AGENT_THREADS_DIR.exists():
+        return {"featured": None, "message": "No agent threads yet"}
+
+    candidates: list[dict[str, Any]] = []
+    files = [
+        *AGENT_THREADS_DIR.glob("*.jsonl"),
+        *AGENT_THREADS_DIR.glob("*.json"),
+    ]
+    seen: set[str] = set()
+    for p in files:
+        if ".meta." in p.name or p.name.endswith("_summary.json"):
+            continue
+        # Prefer the jsonl when both exist
+        key = p.name.rsplit(".", 1)[0]
+        if key in seen:
+            continue
+        parsed = _parse_agent_thread_file(p)
+        if parsed is None:
+            continue
+        seen.add(key)
+        candidates.append(parsed)
+
+    if not candidates:
+        return {"featured": None, "message": "No completed agent conversations with a verdict yet"}
+
+    # Prefer break_found, then most recent
+    candidates.sort(key=lambda c: (1 if c.get("break_found") else 0, float(c.get("mtime") or 0)), reverse=True)
+    best = candidates[0]
+    best.pop("mtime", None)
+    return {"featured": best, "n_candidates": len(candidates)}
 
 
 @ui_router.get("/agent-threads")

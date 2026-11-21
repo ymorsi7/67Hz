@@ -1,19 +1,24 @@
 # GridSafe UI handoff
 
-For a fresh agent. UI owns **local-loop** demo flow + agent attack panel + Results panel. Read `SPEC.md` Phase 5–6 for product intent; this file is what actually shipped.
+For a fresh agent. UI owns **local-loop** demo flow + agent attack panel + Results panel. Read `docs/SPEC.md` Phase 5–6 for product intent; this file is what actually shipped.
 
 ## Ownership (no exceptions)
 - **Write:** `frontend/**`, `server/ui_api.py`, `server/ui_dev.py` only.
 - **Read-only:** everything else. Do not run formatters that rewrite outside ownership. User makes all commits (`AGENTS.md`).
+
+## Repo layout note
+Engine packages live under `src/` (Python imports unchanged). Product spec is `docs/SPEC.md`.
 
 ## How to run
 ```bash
 .venv/bin/uvicorn server.app:app --host 127.0.0.1 --port 8000 --reload
 cd frontend && npm run dev   # proxies /api → 8000
 ```
-Open `http://127.0.0.1:5173/`. Keys: **Space** / **C** / **R** / **Esc**.
+Open `http://127.0.0.1:5173/`. Keys: **Space** / **C** / **R** / **E** (explainer if present) / **Esc**.
 
 **Caveat:** `--reload` wipes in-memory sessions. Prefer **R** (replay) after a backend edit. Parallel agents editing `server/*.py` will drop live demos.
+
+**Demo safety:** A built copy may be serving on port 8000. Do not stop/restart that process, do not run `make demo`, and do not run `vite build` unless the presenter asks.
 
 ## Branding
 Header logo is `/favicon.png` (rounded 40×40), not a Lucide shield. Matches the dark page.
@@ -34,12 +39,22 @@ UI: “Over a 30-minute run: …” with cold-start line underneath. Chart workl
 ## Results panel
 Header **Results** → `GET /api/ui/docs/results` (reads `RESULTS.md` + `FAILURES.md` fresh each time). Client `MarkdownDoc` (no new npm libs). Missing file → “not generated yet”.
 
+## Agents panel (UI round 5)
+On **Break it**:
+- Default: `GET /api/ui/agent-threads/featured` — most recent completed `eval/agent_threads/` conversation that reached a verdict, preferring a break. Labeled **Recorded today at HH:MM** with plain verdict (break found and fixed / break found and the fix was rejected because it made other workloads worse / no break found).
+- Live button: **Run a new round now (takes about 5 minutes)** → `POST /api/agents/harden` SSE. Heartbeat shows `still working, N seconds`. Sliders stay usable while it runs. Tally line kept.
+
+## Explainer (UI round 5)
+If `frontend/public/explainer.mp4` exists (or is served as `/explainer.mp4`), Rulebook shows **Watch the 18-second explainer**; **E** does the same. Full-screen, muted; ends or Esc → back to Rulebook. Missing file → no button.
+
+## Waiting (UI round 5)
+During Read / Verify / Build: live elapsed-seconds counter + one plain line naming the model (“Gemini 4 Neon is reading page 7”, “Gemini Decision 1 is checking each rule against the page”, “Gemini 4 Hydrogen is writing 6 controllers”).
+
 ## Libraries added
 **None for the product.** (Pillow was used only to generate a test photo under `frontend/screenshots/_ramp_rule_input.png`; not a frontend dependency.)
 
 ## Screenshots
 Under `frontend/screenshots/` from UI round 4 browser pass (1440×900 + 1920×1080 rulebook).
 
-## UI round 4 stop (2026-11-21 ~14:20 ET)
-Done: favicon logo, 30-min + cold-start cost, human confirm, PDF page picker, Results endpoint/panel, jargon plain-English for not_evaluable, E2E partial with timings in chat report.  
-Agents harden stream started (engineer message seen) but was cut by parallel `server/agent_api.py` reload before verdict. Fix-it not exercised after session loss. Full Fix-it + agent-to-verdict needs a stable (non-reloading) backend.
+## UI round 5 stop (2026-11-21 ~15:25 ET)
+Done: recorded Agents panel + live round rename/heartbeat, explainer hook (file optional), busy elapsed + model lines, SPEC path fix in this handoff, `tsc -b` clean.
